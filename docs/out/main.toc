@@ -1,0 +1,3 @@
+\babel@toc {british}{}\relax 
+\contentsline {chapter}{\numberline {1}Introduction}{8}{chapter.1}%
+\contentsline {chapter}{\numberline {2}Core algorithms}{9}{chapter.2}%
