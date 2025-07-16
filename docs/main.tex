@@ -1,0 +1,118 @@
+\documentclass[11pt,a4paper,oneside]{report}
+
+% --- Fonts and Language ---
+\usepackage{fontspec}
+\usepackage{unicode-math}
+\setmainfont{STIX Two Text}
+\setmathfont{STIX Two Math}
+\usepackage[british]{babel}
+
+% --- Metadata and PDF Setup ---
+\usepackage{hyperref}
+\hypersetup{
+    pdftitle={Software Documentation},
+    pdfauthor={Your Name or Organisation},
+    pdfsubject={Technical Manual},
+    pdfkeywords={software, documentation, algorithms},
+    colorlinks=true,
+    linkcolor=black,
+    urlcolor=blue
+}
+
+% --- Page Formatting ---
+\usepackage[a4paper,margin=2.5cm]{geometry}
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[R]{\thepage}
+\setlength{\parskip}{0.75em}
+\setlength{\parindent}{0pt}
+\usepackage{emptypage} % Avoid headers on empty pages
+
+% --- Algorithms ---
+\usepackage[ruled,vlined,linesnumbered]{algorithm2e}
+\SetKwComment{Comment}{$\triangleright$\ }{}
+\SetKwInOut{Input}{Input}
+\SetKwInOut{Output}{Output}
+
+% --- Figures and Index ---
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{makeidx}
+\makeindex
+
+% --- Blank Page Macro ---
+\newcommand{\cleartoleftpage}{%
+  \clearpage
+  \ifodd\value{page}\hbox{}\newpage\fi
+}
+
+% ------------------------------
+% --- Begin Document ----------
+% ------------------------------
+\begin{document}
+
+% --- Title Page ---
+\begin{titlepage}
+    \centering
+    \vspace*{4cm}
+    {\Huge\bfseries Neural SDEs Documentation\par}
+    \vspace{1cm}
+    {\Large Version 0.1\par}
+    \vfill
+    {\Large\textcopyright~\the\year~University of Sheffield\\
+    All rights reserved.\par}
+    \vspace{0.5cm}
+\end{titlepage}
+
+\cleartoleftpage
+
+% --- Copyright ---
+\thispagestyle{empty}
+\vspace*{\fill}
+\noindent
+Provide statement about copyright and disclaimer.
+\cleartoleftpage
+
+% --- Table of Contents ---
+\tableofcontents
+\cleartoleftpage
+
+% --- Table of Figures ---
+\listoffigures
+\cleartoleftpage
+
+% ------------------------------
+% --- Content ------------------
+% ------------------------------
+\chapter{Introduction}
+
+\chapter{Core algorithms}
+
+\begin{algorithm}[H]
+\caption{Example Sorting Algorithm}
+\Input{List of integers $A[1 \dots n]$}
+\Output{Sorted list}
+\For{$i \gets 1$ \KwTo $n$}{
+    \For{$j \gets 1$ \KwTo $n - i$}{
+        \If{$A[j] > A[j+1]$}{
+            Swap $A[j]$ and $A[j+1]$\;
+        }
+    }
+}
+\end{algorithm}
+
+\cleartoleftpage
+
+% \appendix
+
+% \chapter{}
+% Refer to the documentation index for further details.
+
+\cleartoleftpage
+
+% --- Index ---
+\printindex
+\cleartoleftpage
+
+\end{document}
