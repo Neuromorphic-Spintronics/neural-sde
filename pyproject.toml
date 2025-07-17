@@ -9,8 +9,15 @@ dependencies = [
     "numpy>=2.3.1",
     "pyrefly>=0.24.2",
     "pytest>=8.4.1",
+    "pyyaml>=6.0.2",
     "ruff>=0.12.3",
     "torch>=2.7.1",
     "tqdm>=4.67.1",
     "zarr>=3.1.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.1",
+    "pytest-cov>=6.2.1",
 ]
