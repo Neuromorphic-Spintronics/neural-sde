@@ -115,7 +115,7 @@ class TestDuffingOscillatorPlotting:
     def test_time_series_plot(self, plotting_oscillator):
         """Test time series plotting."""
         # Disable LaTeX in CI environment to avoid dependency issues
-        use_tex = not os.environ.get('CI', False)
+        use_tex = not os.environ.get("CI", False)
         set_default_plotting_style(use_tex=use_tex)
 
         osc = plotting_oscillator
@@ -166,7 +166,7 @@ class TestDuffingOscillatorPlotting:
     def test_phase_space_plot(self, plotting_oscillator):
         """Test phase space plotting."""
         # Disable LaTeX in CI environment to avoid dependency issues
-        use_tex = not os.environ.get('CI', False)
+        use_tex = not os.environ.get("CI", False)
         set_default_plotting_style(use_tex=use_tex)
 
         osc = plotting_oscillator
@@ -219,7 +219,7 @@ class TestDuffingOscillatorPlotting:
     def test_energy_plot(self, plotting_oscillator):
         """Test energy evolution plotting."""
         # Disable LaTeX in CI environment to avoid dependency issues
-        use_tex = not os.environ.get('CI', False)
+        use_tex = not os.environ.get("CI", False)
         set_default_plotting_style(use_tex=use_tex)
 
         osc = plotting_oscillator
@@ -272,7 +272,7 @@ class TestDuffingOscillatorPlotting:
     def test_potential_landscape_plot(self, plotting_oscillator):
         """Test plotting of the Duffing potential landscape."""
         # Disable LaTeX in CI environment to avoid dependency issues
-        use_tex = not os.environ.get('CI', False)
+        use_tex = not os.environ.get("CI", False)
         set_default_plotting_style(use_tex=use_tex)
 
         osc = plotting_oscillator
