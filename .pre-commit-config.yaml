@@ -1,0 +1,43 @@
+# Pre-commit configuration for code quality and testing
+# Ensures consistency and quality across the codebase
+
+repos:
+  # Ruff formatting and linting
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.4
+    hooks:
+      # Auto-format code with ruff
+      - id: ruff-format
+      # Lint code with ruff
+      - id: ruff
+        args: [--output-format, text]
+
+  # Local hooks for testing and type checking
+  - repo: local
+    hooks:
+      # Run fast unit tests
+      - id: pytest
+        name: pytest (fast unit tests)
+        entry: uv run pytest -q
+        language: system
+        pass_filenames: false
+      # Type checking with Ty
+      - id: ty
+        name: Ty type checker
+        entry: uvx ty check
+        language: system
+        pass_filenames: false
+
+  # Common pre-commit hooks for file hygiene
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      # Ensure files end with a newline
+      - id: end-of-file-fixer
+      # Remove trailing whitespace
+      - id: trailing-whitespace
+      # Check for large files being added
+      - id: check-added-large-files
+
+# Run hooks on both commit and push stages
+default_stages: [pre-commit, pre-push]
