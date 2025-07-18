@@ -44,15 +44,15 @@ class TestDuffingOscillatorParameters:
         assert params.total_time > 0, "Total time should be positive"
 
         # Check noise parameters
-        assert (
-            params.white_noise_strength >= 0
-        ), "White noise strength should be non-negative"
-        assert (
-            params.coloured_noise_strength >= 0
-        ), "Coloured noise strength should be non-negative"
-        assert (
-            params.coloured_noise_timescale > 0
-        ), "Coloured noise timescale should be positive"
+        assert params.white_noise_strength >= 0, (
+            "White noise strength should be non-negative"
+        )
+        assert params.coloured_noise_strength >= 0, (
+            "Coloured noise strength should be non-negative"
+        )
+        assert params.coloured_noise_timescale > 0, (
+            "Coloured noise timescale should be positive"
+        )
 
         logger.info("Default parameters validation passed")
 
