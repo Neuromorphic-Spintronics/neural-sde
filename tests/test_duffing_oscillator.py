@@ -10,6 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 import logging
+import os
 import sys
 
 # Add the current directory to path to import modules
@@ -113,7 +114,9 @@ class TestDuffingOscillatorPlotting:
 
     def test_time_series_plot(self, plotting_oscillator):
         """Test time series plotting."""
-        set_default_plotting_style(use_tex=True)
+        # Disable LaTeX in CI environment to avoid dependency issues
+        use_tex = not os.environ.get('CI', False)
+        set_default_plotting_style(use_tex=use_tex)
 
         osc = plotting_oscillator
         time_grid, trajectory = osc.integrate_sde()
@@ -162,7 +165,9 @@ class TestDuffingOscillatorPlotting:
 
     def test_phase_space_plot(self, plotting_oscillator):
         """Test phase space plotting."""
-        set_default_plotting_style(use_tex=True)
+        # Disable LaTeX in CI environment to avoid dependency issues
+        use_tex = not os.environ.get('CI', False)
+        set_default_plotting_style(use_tex=use_tex)
 
         osc = plotting_oscillator
         time_grid, trajectory = osc.integrate_sde()
@@ -213,7 +218,9 @@ class TestDuffingOscillatorPlotting:
 
     def test_energy_plot(self, plotting_oscillator):
         """Test energy evolution plotting."""
-        set_default_plotting_style(use_tex=True)
+        # Disable LaTeX in CI environment to avoid dependency issues
+        use_tex = not os.environ.get('CI', False)
+        set_default_plotting_style(use_tex=use_tex)
 
         osc = plotting_oscillator
         time_grid, trajectory = osc.integrate_sde()
@@ -264,7 +271,9 @@ class TestDuffingOscillatorPlotting:
 
     def test_potential_landscape_plot(self, plotting_oscillator):
         """Test plotting of the Duffing potential landscape."""
-        set_default_plotting_style(use_tex=True)
+        # Disable LaTeX in CI environment to avoid dependency issues
+        use_tex = not os.environ.get('CI', False)
+        set_default_plotting_style(use_tex=use_tex)
 
         osc = plotting_oscillator
 
