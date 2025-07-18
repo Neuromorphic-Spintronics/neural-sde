@@ -1,0 +1,128 @@
+# Continuous Integration workflow for neural-sde
+# Runs formatting, linting, type checking, and tests across multiple platforms
+
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+# Define reusable composite action steps using YAML anchors to keep the workflow DRY
+x-setup-python: &setup_python
+  name: Set up Python
+  uses: actions/setup-python@v5
+  with:
+    python-version: '3.13'
+
+x-cache-uv: &cache_uv
+  name: Cache uv & pip artefacts
+  uses: actions/cache@v4
+  with:
+    path: |
+      ~/.cache/uv
+      ~/.cache/pip
+    key: ${{ runner.os }}-uv-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+    restore-keys: |
+      ${{ runner.os }}-uv-
+
+x-install: &install
+  name: Install dependencies
+  run: |
+    uv pip install -r requirements.txt
+    uv pip install -e .[dev]
+
+jobs:
+  ruff-format:
+    name: Check code formatting
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ['3.13']
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - <<: *setup_python
+
+      - <<: *cache_uv
+
+      - <<: *install
+
+      - name: Check formatting with ruff
+        run: ruff format --check .
+        # Fail if ruff format would change any files
+        continue-on-error: false
+
+  ruff-lint:
+    name: Lint code with ruff
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ['3.13']
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - <<: *setup_python
+
+      - <<: *cache_uv
+
+      - <<: *install
+
+      - name: Run ruff linting
+        run: ruff check .
+
+  ty-check:
+    name: Type checking
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ['3.13']
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - <<: *setup_python
+
+      - <<: *cache_uv
+
+      - <<: *install
+
+      - name: Run type checking with pyrefly
+        run: uvx ty check
+
+  tests:
+    name: Run tests and generate coverage
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ['3.13']
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - <<: *setup_python
+
+      - <<: *cache_uv
+
+      - <<: *install
+
+      - name: Run tests with coverage
+        run: pytest -q --cov=neural_sde --cov-report=xml --cov-report=term
+        # Generate both XML and terminal coverage reports
+        continue-on-error: false
+
+      - name: Upload coverage reports as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports-${{ matrix.os }}-python${{ matrix.python }}
+          path: coverage.xml
+          # Only upload if coverage.xml exists
+          if-no-files-found: ignore
+        # Always upload coverage, even if tests fail
+        if: always()
