@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+
 @dataclass(frozen=True)
 class DuffingOscillatorParameters:
     """
@@ -16,6 +17,7 @@ class DuffingOscillatorParameters:
     - eta(t): white noise term with strength `white_noise_strength`
     - xi(t): coloured noise term with strength `coloured_noise_strength` and characteristic timescale `coloured_noise_timescale`.
     """
+
     # Physical parameters
     delta: float = 0.3
     alpha: float = -1.0
@@ -31,11 +33,11 @@ class DuffingOscillatorParameters:
     # Coloured noise parameters
     coloured_noise_strength: float = 0.05
     coloured_noise_timescale: float = 0.2
-    
+
     # Numerical parameters
     timestep: float = 0.001
     total_time: float = 100.0
-    
+
     # Initial conditions
     initial_position: float = 0.1
-    initial_velocity: float = 0.0 
+    initial_velocity: float = 0.0
