@@ -1,8 +1,6 @@
 name: CI
 
 on:
-  push:
-    branches: [main, "*"]
   pull_request:
     branches: [main, "*"]
 
@@ -41,7 +39,7 @@ jobs:
         run: uv run ruff check .
 
       - name: Type check with ty
-        run: uv run ty check
+        run: uvx ty check
 
       - name: Run tests with pytest and coverage
         run: uv run pytest --cov=neural_sde --cov-report=term-missing
