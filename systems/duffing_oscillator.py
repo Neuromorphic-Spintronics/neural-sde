@@ -1,7 +1,7 @@
 """
 Duffing Oscillator
 
-This module defines the Duffing oscillator, a nonlinear second-order dynamical system with both deterministic and stochastic (coloured noise) components.
+This module defines the Duffing oscillator, a nonlinear second-order dynamical system with both deterministic and stochastic components.
 
 The canonical form of the Duffing oscillator is:
 
@@ -23,7 +23,7 @@ import torch
 import math
 from typing import Tuple, Optional
 from parameters import DuffingOscillatorParameters
-from models.integrators import euler_maruyama
+from models.integrators import stochastic_heun_method
 from config import DEVICE
 
 
@@ -140,14 +140,14 @@ class DuffingOscillator:
         )
 
     def integrate_sde(
-        self, initial_state: Optional[torch.Tensor] = None, add_white_noise: bool = True
+        self,
+        initial_state: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Integrate the stochastic Duffing oscillator using Euler-Maruyama method.
+        Integrate the stochastic Duffing oscillator using stochastic Heun method.
 
         Args:
             initial_state: Initial conditions [x0, v0, xi0]. If None, uses default params
-            add_white_noise: Whether to add white noise to the system
 
         Returns:
             Tuple of (time_grid, state_trajectory)
@@ -165,18 +165,13 @@ class DuffingOscillator:
         else:
             initial_state = initial_state.to(DEVICE)
 
-        # Choose diffusion function based on whether to add white noise
-        diffusion_fn = self.diffusion_function if add_white_noise else None
-
-        # Integrate using Euler-Maruyama
-        time_grid, trajectory = euler_maruyama(
+        time_grid, trajectory = stochastic_heun_method(
             drift=self.drift_function,
-            diffusion=diffusion_fn,
+            diffusion=self.diffusion_function,
             y0=initial_state,
             t0=0.0,
             tN_t=self.params.total_time,
             dt=self.params.timestep,
-            device=DEVICE,
         )
 
         return time_grid, trajectory
@@ -194,18 +189,6 @@ class DuffingOscillator:
             Tuple of (position, velocity)
         """
         return trajectory[:, 0], trajectory[:, 1]
-
-    def get_coloured_noise(self, trajectory: torch.Tensor) -> torch.Tensor:
-        """
-        Extract coloured noise component from trajectory.
-
-        Args:
-            trajectory: State trajectory from integrate_sde
-
-        Returns:
-            Coloured noise time series
-        """
-        return trajectory[:, 2]
 
     def potential_energy(self, x: torch.Tensor) -> torch.Tensor:
         """

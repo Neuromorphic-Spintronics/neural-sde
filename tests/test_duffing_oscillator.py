@@ -94,6 +94,39 @@ class TestDuffingOscillator:
         logger.info("Oscillator initialisation test passed")
 
 
+class TestStochasticHeunMethod:
+    """Test the stochastic Heun method specifically."""
+
+    @pytest.fixture
+    def heun_oscillator(self):
+        """Create oscillator optimised for Heun method testing."""
+        params = DuffingOscillatorParameters(
+            timestep=0.005,  # Smaller timestep for better accuracy
+            total_time=5.0,
+            white_noise_strength=0.1,
+            coloured_noise_strength=0.05,
+            initial_position=0.5,
+            initial_velocity=0.0,
+        )
+        return DuffingOscillator(params)
+
+    def test_heun_integration(self, heun_oscillator):
+        """Test that stochastic Heun method produces valid trajectories."""
+        osc = heun_oscillator
+
+        # Set random seed for reproducible results
+        torch.manual_seed(42)
+        time_grid, trajectory = osc.integrate_sde()
+
+        # Should produce valid trajectories
+        assert not torch.any(torch.isnan(trajectory))
+        assert not torch.any(torch.isinf(trajectory))
+        assert time_grid.shape[0] == osc.num_steps + 1
+        assert trajectory.shape == (osc.num_steps + 1, 3)
+
+        logger.info("Heun integration test passed")
+
+
 class TestDuffingOscillatorPlotting:
     """Test plotting functionality for the Duffing oscillator."""
 
@@ -112,59 +145,8 @@ class TestDuffingOscillatorPlotting:
         )
         return DuffingOscillator(params)
 
-    def test_time_series_plot(self, plotting_oscillator):
-        """Test time series plotting."""
-        # Disable LaTeX in CI environment to avoid dependency issues
-        use_tex = not os.environ.get("CI", False)
-        set_default_plotting_style(use_tex=use_tex)
-
-        osc = plotting_oscillator
-        time_grid, trajectory = osc.integrate_sde()
-
-        # Convert to numpy for plotting
-        t = time_grid.numpy()
-        x, v = osc.get_position_velocity(trajectory)
-        x_np = x.numpy()
-        v_np = v.numpy()
-        xi_np = osc.get_coloured_noise(trajectory).numpy()
-
-        # Create time series plot
-        fig, axes = plt.subplots(3, 1, figsize=(7, 7))
-
-        # Position
-        axes[0].plot(t, x_np, color="k", linewidth=1, label=r"Position $x(t)$")
-        axes[0].set_ylabel(r"Position $x$")
-        axes[0].legend()
-        axes[0].grid(True, alpha=0.3)
-        style_axis_clean(axes[0])
-
-        # Velocity
-        axes[1].plot(t, v_np, color="k", linewidth=1, label=r"Velocity $\dot{x}(t)$")
-        axes[1].set_ylabel(r"Velocity $\dot{x}$")
-        axes[1].legend()
-        axes[1].grid(True, alpha=0.3)
-        style_axis_clean(axes[1])
-
-        # Coloured noise
-        axes[2].plot(t, xi_np, color="k", linewidth=1, label=r"Coloured noise $\xi(t)$")
-        axes[2].set_xlabel(r"Time $t$")
-        axes[2].set_ylabel(r"Noise $\xi$")
-        axes[2].legend()
-        axes[2].grid(True, alpha=0.3)
-        style_axis_clean(axes[2])
-
-        plt.tight_layout()
-
-        # Save plot
-        plot_path = FIGURES_DIR / "duffing_time_series.png"
-        plt.savefig(plot_path, dpi=300, bbox_inches="tight")
-        plt.close()
-
-        assert plot_path.exists(), "Time series plot should be saved"
-        logger.info(f"Time series plot saved to {plot_path}")
-
     def test_phase_space_plot(self, plotting_oscillator):
-        """Test phase space plotting."""
+        """Test phase space plotting using stochastic Heun method."""
         # Disable LaTeX in CI environment to avoid dependency issues
         use_tex = not os.environ.get("CI", False)
         set_default_plotting_style(use_tex=use_tex)
@@ -173,8 +155,8 @@ class TestDuffingOscillatorPlotting:
         time_grid, trajectory = osc.integrate_sde()
 
         x, v = osc.get_position_velocity(trajectory)
-        x_np = x.numpy()
-        v_np = v.numpy()
+        x_np = x.cpu().numpy()
+        v_np = v.cpu().numpy()
 
         # Create phase space plot
         fig, ax = plt.subplots(1, 1, figsize=(7, 5))
@@ -183,7 +165,7 @@ class TestDuffingOscillatorPlotting:
         scatter = ax.scatter(
             x_np,
             v_np,
-            c=time_grid.numpy(),
+            c=time_grid.cpu().numpy(),
             cmap="magma",
             s=1,
             alpha=0.6,
@@ -214,7 +196,7 @@ class TestDuffingOscillatorPlotting:
         plt.close()
 
         assert plot_path.exists(), "Phase space plot should be saved"
-        logger.info(f"Phase space plot saved to {plot_path}")
+        logger.info(f"Phase space plot (using Heun method) saved to {plot_path}")
 
     def test_energy_plot(self, plotting_oscillator):
         """Test energy evolution plotting."""
@@ -233,10 +215,10 @@ class TestDuffingOscillatorPlotting:
         total = osc.total_energy(x, v)
 
         # Convert to numpy
-        t = time_grid.numpy()
-        kinetic_np = kinetic.numpy()
-        potential_np = potential.numpy()
-        total_np = total.numpy()
+        t = time_grid.cpu().numpy()
+        kinetic_np = kinetic.cpu().numpy()
+        potential_np = potential.cpu().numpy()
+        total_np = total.cpu().numpy()
 
         # Create energy plot
         fig, ax = plt.subplots(1, 1, figsize=(7, 5))
@@ -282,8 +264,8 @@ class TestDuffingOscillatorPlotting:
         potential = osc.potential_energy(x_range)
 
         # Convert to numpy
-        x_np = x_range.numpy()
-        V_np = potential.numpy()
+        x_np = x_range.cpu().numpy()
+        V_np = potential.cpu().numpy()
 
         # Create potential plot
         fig, ax = plt.subplots(1, 1, figsize=(7, 5))
