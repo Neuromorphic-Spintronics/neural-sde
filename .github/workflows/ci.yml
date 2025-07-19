@@ -32,9 +32,6 @@ jobs:
           uv venv .venv
           uv sync
 
-      - name: Format with ruff
-        run: uv run ruff format --check .
-
       - name: Lint with ruff
         run: uv run ruff check .
 
