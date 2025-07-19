@@ -34,9 +34,11 @@ def rk2(
     Returns:
         torch.Tensor: The solution to the ODE at time tN_t.
     """
+    num_steps = int((tN_t - t0) / dt)
+
     y = y0
     t = t0
-    while t <= tN_t:
+    for _ in range(num_steps):
         k1 = f(t, y)
         k2 = f(t + dt, y + dt * k1)
         y = y + dt * (k1 + k2) / 2
@@ -64,9 +66,11 @@ def rk4(
 
     Returns:
     """
+    num_steps = int((tN_t - t0) / dt)
+
     y = y0
     t = t0
-    while t <= tN_t:
+    for _ in range(num_steps):
         k1 = f(t, y)
         k2 = f(t + dt / 2, y + dt * k1 / 2)
         k3 = f(t + dt / 2, y + dt * k2 / 2)
