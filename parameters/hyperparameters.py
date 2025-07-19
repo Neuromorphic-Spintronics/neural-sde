@@ -59,8 +59,8 @@ class Hyperparameters:
 
     # Training parameters
     timestep: float = 0.01  # Integration timestep for numerical methods, this perhaps could be adjusted dynamically to satisfy the CFL condition
-    learning_rates: Tuple[float, float, float] = (
-        0.001,
-        0.001,
-        0.001,
+    learning_rates: LearningRates = LearningRates(
+        drift=0.001,
+        diffusion=0.001,
+        discriminator=0.001,
     )  # Learning rates for drift, diffusion, and discriminator networks
