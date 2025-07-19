@@ -1,5 +1,22 @@
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List
+
+
+@dataclass(frozen=True)
+class LearningRates:
+    """Learning rates for different network components."""
+    drift: float
+    diffusion: float
+    discriminator: float
+
+    def __post_init__(self):
+        """Validate learning rates."""
+        if self.drift <= 0:
+            raise ValueError("Drift learning rate must be greater than 0")
+        if self.diffusion <= 0:
+            raise ValueError("Diffusion learning rate must be greater than 0")
+        if self.discriminator <= 0:
+            raise ValueError("Discriminator learning rate must be greater than 0")
 
 
 @dataclass(frozen=True)
