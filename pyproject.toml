@@ -1,9 +1,9 @@
 [project]
 name = "neural-sde"
 version = "0.1.0"
-description = "Add your description here"
+description = "Command line tool to apply the Neural SDE framework to any time series data."
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.13.5"
 dependencies = [
     "matplotlib>=3.10.3",
     "numpy>=2.3.1",
