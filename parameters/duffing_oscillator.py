@@ -19,25 +19,25 @@ class DuffingOscillatorParameters:
     """
 
     # Physical parameters
-    delta: float = 0.3
+    delta: float = 0.15
     alpha: float = -1.0
     beta: float = 1.0
 
     # External forcing
-    forcing_amplitude: float = 0.3
-    forcing_frequency: float = 1.2
+    forcing_amplitude: float = 0.4
+    forcing_frequency: float = 0.9
 
     # White noise parameters
-    white_noise_strength: float = 0.1
+    white_noise_strength: float = 0.08
 
     # Coloured noise parameters
-    coloured_noise_strength: float = 0.05
-    coloured_noise_timescale: float = 0.2
+    coloured_noise_strength: float = 0.04
+    coloured_noise_timescale: float = 0.5
 
     # Numerical parameters
-    timestep: float = 0.001
-    total_time: float = 100.0
+    timestep: float = 0.005
+    total_time: float = 200.0
 
     # Initial conditions
-    initial_position: float = 0.1
+    initial_position: float = 0.5
     initial_velocity: float = 0.0
