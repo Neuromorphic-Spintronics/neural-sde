@@ -1,9 +1,7 @@
 """
 Neural network modules for the neural SDE framework.
 
-This module provides reusable neural network components that integrate with
-the parameter system and follow the codebase's architectural patterns.
-All modules use the established device management and parameter validation.
+This module provides reusable neural network components that integrate with the parameter system and follow the codebase's architectural patterns. All modules use the established device management and parameter validation.
 """
 
 from __future__ import annotations
@@ -20,11 +18,9 @@ class FeedForwardNetwork(nn.Sequential, NetworkProtocol):
     """
     Fully connected neural network with configurable activation functions and Xavier initialisation.
     
-    This class provides a standard feedforward architecture that integrates with
-    the parameter system's NetworkArchitecture specification.
+    This class provides a standard feedforward architecture that integrates with the parameter system's NetworkArchitecture specification.
     
-    The network applies Xavier initialisation in good approximation to all layers and
-    includes configurable activation functions between layers (except the final layer).
+    The network applies Xavier initialisation in good approximation to all layers and includes configurable activation functions between layers (except the final layer).
     
     Args:
         architecture: Network architecture specification defining layer dimensions
@@ -37,12 +33,7 @@ class FeedForwardNetwork(nn.Sequential, NetworkProtocol):
         >>> architecture = NetworkArchitecture(input_size=3, hidden_sizes=[64, 32], output_size=2)
         >>> network = FeedForwardNetwork(architecture, activation=lambda: nn.ReLU())
         >>> output = network(torch.randn(10, 3))  # shape: [10, 2]
-    
-    Notes:
-        - Xavier initialisation is applied to every linear layer for stable training
-        - The final layer does not include an activation function to allow flexible output ranges
-        - All intermediate layers include the specified activation function
-        - Parameters are automatically moved to the specified device
+
     """
 
     def __init__(
@@ -109,8 +100,7 @@ def count_network_parameters(network: nn.Module) -> int:
     """
     Count the total number of trainable parameters in a network.
     
-    This utility function provides a consistent way to count parameters
-    across different network architectures for logging and analysis.
+    This utility function provides a consistent way to count parameters across different network architectures for logging and analysis.
     
     Args:
         network: PyTorch neural network module
