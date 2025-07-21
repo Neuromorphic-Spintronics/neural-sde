@@ -23,8 +23,8 @@ The codebase is organised into several key components that work together to prov
 
 The framework automatically selects the optimal computation device:
 
-- **Apple Silicon**: Uses MPS (Metal Performance Shaders) for GPU acceleration
-- **NVIDIA GPUs**: Uses CUDA for GPU acceleration  
+- **Apple silicon**: Uses MPS (Metal Performance Shaders) for GPU acceleration
+- **NVIDIA GPUs**: Uses CUDA for GPU acceleration
 - **Fallback**: Uses CPU for universal compatibility
 
 ```python
@@ -98,6 +98,9 @@ The integration module provides both full trajectory-based and single-step integ
 
 ### 5. Neural SDE Framework (`models/neural_sde.py`)
 
+> [!TIP]
+> The framework automatically selects the appropriate single-step integrator, based on the presence of the diffusion term. If there is no diffusion term, the framework defaults to the Runge-Kutta 2nd-order integration scheme. If there is a diffusion term, the framework defaults to the stochastic Heun method.
+
 The core neural SDE implementation combines neural networks with numerical integration:
 
 #### Network Components
@@ -143,7 +146,7 @@ Provides visualisation tools:
 
 #### `logging.py`
 
-Structured logging for training and evaluation processes. 
+Structured logging for training and evaluation processes.
 
 > [!CAUTION]
 > Not Yet Implemented
