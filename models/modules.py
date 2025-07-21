@@ -1,7 +1,5 @@
 """
 Neural network modules for the neural SDE framework.
-
-This module provides reusable neural network components that integrate with the parameter system and follow the codebase's architectural patterns. All modules use the established device management and parameter validation.
 """
 
 from __future__ import annotations
