@@ -511,6 +511,7 @@ def rk4(
         dt: float: The time step.
 
     Returns:
+        torch.Tensor: The solution to the ODE at time tN_t.
     """
     num_steps = int((tN_t - t0) / dt)
 
