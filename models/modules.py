@@ -68,7 +68,17 @@ class FeedForwardNetwork(nn.Sequential, NetworkProtocol):
         Returns:
             List of layers to be passed to nn.Sequential
         """
-        raise NotImplementedError()  # type: ignore
+        layers = []
+
+        for i in range(len(self.layer_sizes) - 1):
+            # Add linear layer
+            layers.append(nn.Linear(self.layer_sizes[i], self.layer_sizes[i + 1]))
+
+            # Add activation function for all layers except the last one
+            if i < len(self.layer_sizes) - 2:
+                layers.append(activation())
+
+        return layers
 
     def _initialise_weights(self) -> None:
         """
@@ -76,7 +86,11 @@ class FeedForwardNetwork(nn.Sequential, NetworkProtocol):
         
         This initialisation helps maintain gradient magnitudes through the network.
         """
-        raise NotImplementedError()  # type: ignore
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
 
     def forward(self, input: Tensor) -> Tensor:  # type: ignore[override]
         """
@@ -91,7 +105,15 @@ class FeedForwardNetwork(nn.Sequential, NetworkProtocol):
         Raises:
             ValueError: If input dimension doesn't match architecture (maybe this will be raised by PyTorch in any case)
         """
-        raise NotImplementedError()  # type: ignore
+        # Validate input dimensions
+        if input.shape[-1] != self.architecture.input_size:
+            raise ValueError(
+                f"Input dimension {input.shape[-1]} does not match "
+                f"expected architecture input size {self.architecture.input_size}"
+            )
+
+        # Use the parent Sequential's forward method
+        return super().forward(input)
 
 
 def count_network_parameters(network: nn.Module) -> int:
@@ -111,12 +133,11 @@ def count_network_parameters(network: nn.Module) -> int:
         >>> param_count = count_network_parameters(network)
         >>> print(f"Network has {param_count:,} trainable parameters")
     """
-    raise NotImplementedError()  # type: ignore
+    return sum(p.numel() for p in network.parameters() if p.requires_grad)
 
 
 def initialise_network_weights(
-    network: nn.Module, 
-    initialisation_method: str = "xavier"
+    network: nn.Module, initialisation_method: str = "xavier"
 ) -> None:
     """
     Apply weight initialisation to all linear layers in a network.
@@ -128,4 +149,17 @@ def initialise_network_weights(
     Raises:
         ValueError: If initialisation method is not recognised
     """
-    raise NotImplementedError()  # type: ignore
+    for module in network.modules():
+        if isinstance(module, nn.Linear):
+            if initialisation_method == "xavier":
+                nn.init.xavier_uniform_(module.weight)
+            elif initialisation_method == "kaiming":
+                nn.init.kaiming_uniform_(module.weight, nonlinearity="relu")
+            else:
+                raise ValueError(
+                    f"Unknown initialisation method: {initialisation_method}. "
+                    f"Supported methods: 'xavier', 'kaiming'"
+                )
+
+            if module.bias is not None:
+                nn.init.zeros_(module.bias)
