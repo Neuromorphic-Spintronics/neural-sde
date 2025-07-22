@@ -62,10 +62,7 @@ class DriftNet(FeedForwardNetwork):
         raise NotImplementedError() # type: ignore
 
     def compute_drift(
-        self, 
-        state: Tensor, 
-        time: Tensor, 
-        external_inputs: Optional[Tensor] = None
+        self, state: Tensor, time: Tensor, external_inputs: Optional[Tensor] = None
     ) -> Tensor:
         """
         Compute the drift term for given state, time, and inputs.
@@ -78,7 +75,35 @@ class DriftNet(FeedForwardNetwork):
         Returns:
             Drift vector of shape [batch_size, state_dim]
         """
-        raise NotImplementedError() # type: ignore
+        # Ensure time has the correct shape
+        if time.dim() == 1:
+            time = time.unsqueeze(-1)  # Convert [batch_size] to [batch_size, 1]
+
+        # Prepare input tensor by concatenating state, time, and external inputs
+        input_components = [state, time]
+
+        if external_inputs is not None:
+            input_components.append(external_inputs)
+        else:
+            # Create zero external inputs if none provided to match expected input size
+            batch_size = state.shape[0]
+            device = state.device
+            # Calculate expected external input dimension
+            expected_input_size = self.architecture.input_size
+            state_time_size = state.shape[1] + time.shape[1]
+            external_input_size = expected_input_size - state_time_size
+
+            if external_input_size > 0:
+                zero_external_inputs = torch.zeros(
+                    batch_size, external_input_size, device=device
+                )
+                input_components.append(zero_external_inputs)
+
+        # Concatenate all components along the feature dimension
+        network_input = torch.cat(input_components, dim=-1)
+
+        # Pass through the neural network
+        return self.forward(network_input)
 
 
 class DiffusionNet(FeedForwardNetwork):

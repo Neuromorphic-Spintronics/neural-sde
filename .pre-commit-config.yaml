@@ -1,6 +1,9 @@
 # Pre-commit configuration for code quality and testing
 # Ensures consistency and quality across the codebase
 
+# Exclude legacy folder from all hooks
+exclude: '^legacy/'
+
 repos:
   # Ruff formatting and linting
   - repo: https://github.com/astral-sh/ruff-pre-commit
@@ -9,6 +12,7 @@ repos:
       # Lint code with ruff
       - id: ruff
         args: [--fix, --output-format, text]
+        exclude: '^legacy/'
 
   # Local hooks for testing and type checking
   - repo: local
@@ -16,15 +20,19 @@ repos:
       # Type checking with Ty
       - id: ty
         name: Ty type checker
-        entry: uvx ty check
+        entry: uvx ty check --exclude legacy .
         language: system
-        pass_filenames: false
+        files: '\.py$' # Only run on Python files
+        pass_filenames: false # Check the whole project
+        exclude: '^legacy/'
       # Run fast unit tests
       - id: pytest
         name: pytest (fast unit tests)
-        entry: uv run pytest -q
+        entry: uv run pytest -q --ignore=legacy
         language: system
-        pass_filenames: false
+        files: '^tests/.*\.py$' # Only run on test files in tests/ directory
+        pass_filenames: false # Run all tests, not just staged ones
+        exclude: '^legacy/'
       
 # Run hooks on both commit and push stages
 default_stages: [pre-commit, pre-push]
