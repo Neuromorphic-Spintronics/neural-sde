@@ -62,18 +62,18 @@ class TestDuffingOscillator:
     """Test the main Duffing oscillator implementation."""
 
     @pytest.fixture
-    def default_oscillator(self):
+    def default_oscillator(self) -> DuffingOscillator:
         """Create a default oscillator for testing."""
         params = DuffingOscillatorParameters(
             timestep=0.01,
             total_time=10.0,
             white_noise_strength=0.0,  # Start with deterministic case
-            coloured_noise_strength=0.0,
+            coloured_noise_strength=0.0, # again, deterministic case
         )
         return DuffingOscillator(params)
 
     @pytest.fixture
-    def stochastic_oscillator(self):
+    def stochastic_oscillator(self) -> DuffingOscillator:
         """Create a stochastic oscillator for testing."""
         params = DuffingOscillatorParameters(
             timestep=0.01,
@@ -83,7 +83,7 @@ class TestDuffingOscillator:
         )
         return DuffingOscillator(params)
 
-    def test_initialisation(self, default_oscillator):
+    def test_initialisation(self, default_oscillator) -> None:
         """Test oscillator initialisation."""
         osc = default_oscillator
 
@@ -98,7 +98,7 @@ class TestStochasticHeunMethod:
     """Test the stochastic Heun method specifically."""
 
     @pytest.fixture
-    def heun_oscillator(self):
+    def heun_oscillator(self) -> DuffingOscillator:
         """Create oscillator optimised for Heun method testing."""
         params = DuffingOscillatorParameters(
             timestep=0.005,  # Smaller timestep for better accuracy
@@ -110,7 +110,7 @@ class TestStochasticHeunMethod:
         )
         return DuffingOscillator(params)
 
-    def test_heun_integration(self, heun_oscillator):
+    def test_heun_integration(self, heun_oscillator) -> None:
         """Test that stochastic Heun method produces valid trajectories."""
         osc = heun_oscillator
 
@@ -131,7 +131,7 @@ class TestDuffingOscillatorPlotting:
     """Test plotting functionality for the Duffing oscillator."""
 
     @pytest.fixture
-    def plotting_oscillator(self):
+    def plotting_oscillator(self) -> DuffingOscillator:
         """Create oscillator optimised for plotting tests."""
         params = DuffingOscillatorParameters(
             timestep=0.01,
@@ -145,7 +145,7 @@ class TestDuffingOscillatorPlotting:
         )
         return DuffingOscillator(params)
 
-    def test_phase_space_plot(self, plotting_oscillator):
+    def test_phase_space_plot(self, plotting_oscillator) -> None:
         """Test phase space plotting using stochastic Heun method."""
         # Disable LaTeX in CI environment to avoid dependency issues
         use_tex = not os.environ.get("CI", False)
@@ -198,7 +198,7 @@ class TestDuffingOscillatorPlotting:
         assert plot_path.exists(), "Phase space plot should be saved"
         logger.info(f"Phase space plot (using Heun method) saved to {plot_path}")
 
-    def test_energy_plot(self, plotting_oscillator):
+    def test_energy_plot(self, plotting_oscillator) -> None:
         """Test energy evolution plotting."""
         # Disable LaTeX in CI environment to avoid dependency issues
         use_tex = not os.environ.get("CI", False)
@@ -251,7 +251,7 @@ class TestDuffingOscillatorPlotting:
         assert plot_path.exists(), "Energy plot should be saved"
         logger.info(f"Energy plot saved to {plot_path}")
 
-    def test_potential_landscape_plot(self, plotting_oscillator):
+    def test_potential_landscape_plot(self, plotting_oscillator) -> None:
         """Test plotting of the Duffing potential landscape."""
         # Disable LaTeX in CI environment to avoid dependency issues
         use_tex = not os.environ.get("CI", False)
