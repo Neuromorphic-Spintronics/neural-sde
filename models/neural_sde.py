@@ -155,7 +155,7 @@ class DiscriminatorNet(FeedForwardNetwork):
         
     Example:
         >>> # Discriminator for trajectory chunks of length 50 with 3D states
-        >>> archicecture = NetworkArchitecture(input_size=150, hidden_sizes=[64, 32], output_size=1)
+        >>> architecture = NetworkArchitecture(input_size=150, hidden_sizes=[64, 32], output_size=1)
         >>> disc = DiscriminatorNet(architecture, trajectory_length=50)
     """
 
