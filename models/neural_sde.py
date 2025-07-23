@@ -177,45 +177,36 @@ class DiffusionNet(FeedForwardNetwork):
         if time.dim() == 1:
             time = time.unsqueeze(-1)  # Convert [batch_size] to [batch_size, 1]
 
+        # Calculate the correct external input dimension
+        time_size = time.shape[1]
+        state_size = state.shape[1]
+        expected_input_size = self.architecture.input_size
+        # The input to the network is constructed as [state, time, external_inputs],
+        # so the total input size is: state_size + time_size + external_input_size.
+        # To determine the size for external_inputs, subtract the space used by state and time.
+        external_input_size = expected_input_size - state_size - time_size
+
         # Prepare input tensor by concatenating state, time, and external inputs
         input_components = [state, time]
-        
         if external_inputs is not None:
             input_components.append(external_inputs)
         else:
-            # Create zero external inputs if none provided to match expected input size
             batch_size = state.shape[0]
             device = state.device
-            # Calculate expected external input dimension
-            expected_input_size = self.architecture.input_size
-
-            time_size = time.shape[1]
-            state_size = state.shape[1] 
-            external_input_size = expected_input_size - time_size - state_size
-
             if external_input_size > 0:
                 zero_external_inputs = torch.zeros(
                     batch_size, external_input_size, device=device
                 )
                 input_components.append(zero_external_inputs)
-        
-        # Add time and state
-        input_components.extend([time, state])
-
         # Concatenate all components along the feature dimension
         network_input = torch.cat(input_components, dim=-1)
 
         # Pass through the neural network
         diffusion_output = self.forward(network_input)
-        
-        # Reshape output to diffusion matrix format [batch_size, state_dim, noise_dim].
-        # This reshaping ensures compatibility with downstream components that expect the diffusion matrix
-        # to have dimensions corresponding to the batch size, state dimension, and noise dimension.
         batch_size = diffusion_output.shape[0]
         diffusion_matrix = diffusion_output.reshape(
             batch_size, self.state_dimension, self.noise_dimension
         )
-        
         return diffusion_matrix
 
 
