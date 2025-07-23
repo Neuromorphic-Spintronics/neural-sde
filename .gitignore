@@ -1,6 +1,8 @@
 __pycache__/
 .DS_Store
 uv.lock
+legacy/
+.misc/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -217,3 +219,4 @@ Documentation/main.tex
 
 # Test figures (generated during testing)
 tests/figures/*.png
+tests/figures/*.pdf
