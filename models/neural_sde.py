@@ -58,8 +58,6 @@ class DriftNet(FeedForwardNetwork):
             device: Computation device
         """
         super().__init__(architecture, activation, device=device)
-        
-        raise NotImplementedError() # type: ignore
 
     def compute_drift(
         self, state: Tensor, time: Tensor, external_inputs: Optional[Tensor] = None
