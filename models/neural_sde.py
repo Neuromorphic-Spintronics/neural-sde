@@ -177,8 +177,8 @@ class DiffusionNet(FeedForwardNetwork):
         if time.dim() == 1:
             time = time.unsqueeze(-1)  # Convert [batch_size] to [batch_size, 1]
 
-        # Prepare input tensor by concatenating external inputs and state
-        input_components = []
+        # Prepare input tensor by concatenating state, time, and external inputs
+        input_components = [state, time]
         
         if external_inputs is not None:
             input_components.append(external_inputs)
