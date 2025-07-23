@@ -208,7 +208,9 @@ class DiffusionNet(FeedForwardNetwork):
         # Pass through the neural network
         diffusion_output = self.forward(network_input)
         
-        # Reshape output to diffusion matrix format [batch_size, state_dim, noise_dim], which follows the legacy `G_Module` structure which reshapes to [batch_size, G_out, -1]
+        # Reshape output to diffusion matrix format [batch_size, state_dim, noise_dim].
+        # This reshaping ensures compatibility with downstream components that expect the diffusion matrix
+        # to have dimensions corresponding to the batch size, state dimension, and noise dimension.
         batch_size = diffusion_output.shape[0]
         diffusion_matrix = diffusion_output.reshape(
             batch_size, self.state_dimension, self.noise_dimension
