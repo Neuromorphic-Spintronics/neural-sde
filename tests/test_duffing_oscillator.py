@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import torch
 import pytest
-import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 import logging
