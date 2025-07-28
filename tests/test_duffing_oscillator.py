@@ -521,8 +521,8 @@ class TestPlottingAndVisualisation:
         # The white noise affects the velocity equation: dv/dt = ... + √(2μΘ) dW/dt
         white_noise_strength = math.sqrt(2 * osc.params.mu * osc.params.Theta)
         # Generate white noise as random increments
-        np.random.seed(42)  # For reproducibility
-        white_noise = np.random.normal(0, white_noise_strength, len(t_np))
+        torch.manual_seed(42)  # For reproducibility
+        white_noise = (torch.randn(len(t_np)) * white_noise_strength).numpy()
         ax1.plot(t_np, white_noise, color='black', linewidth=1, label=r"$\eta_1(t)$")
         ax1.set_xlabel(r"Time $t$")
         ax1.set_ylabel(r"$\eta_1(t)$")
