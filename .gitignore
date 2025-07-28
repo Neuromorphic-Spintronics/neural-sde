@@ -56,6 +56,7 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
+tests/figures/
 
 # Translations
 *.mo
@@ -216,7 +217,3 @@ __marimo__/
 # LaTeX
 Documentation/out/
 Documentation/main.tex
-
-# Test figures (generated during testing)
-tests/figures/*.png
-tests/figures/*.pdf

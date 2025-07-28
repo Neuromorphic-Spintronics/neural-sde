@@ -214,7 +214,7 @@ class DiscriminatorNet(FeedForwardNetwork):
     """
     Discriminator network for adversarial training of neural SDEs.
     
-    This network acts as a critic that scores trajectory segments to distinguish between real (from the true system) and synthetic (from the neural SDE) trajectories. Used in Wasserstein GAN training with gradient penalty.
+    This network acts as a critic that scores trajectory segments to distinguish between real (from the 'true' (simulated) system) and synthetic (from the neural SDE) trajectories. Used in Wasserstein GAN training with gradient penalty (to ensure 1-Lipschitz).
 
     Args:
         architecture: Network architecture specification
@@ -223,9 +223,9 @@ class DiscriminatorNet(FeedForwardNetwork):
         device: Computation device
         
     Example:
-        >>> # Discriminator for trajectory chunks of length 50 with 3D states
-        >>> architecture = NetworkArchitecture(input_size=150, hidden_sizes=[64, 32], output_size=1)
-        >>> disc = DiscriminatorNet(architecture, trajectory_length=50)
+        >>> # Discriminator for trajectory chunks of length 64 with 3D states
+        >>> architecture = NetworkArchitecture(input_size=192, hidden_sizes=[64, 32], output_size=1)
+        >>> disc = DiscriminatorNet(architecture, trajectory_length=64)
     """
 
     def __init__(
@@ -246,20 +246,56 @@ class DiscriminatorNet(FeedForwardNetwork):
             device: Computation device
         """
         super().__init__(architecture, activation, device=device)
-
-        raise NotImplementedError() # type: ignore
+        self.trajectory_length = trajectory_length
+        
+        # Validate architecture matches expected input size
+        # Input should be trajectory_length * state_dim
+        if architecture.output_size != 1:
+            raise ValueError(
+                f"Discriminator output size must be 1, got {architecture.output_size}"
+            )
 
     def score_trajectory(self, trajectory_segment: Tensor) -> Tensor:
         """
-        Score a trajectory segment
+        Score a trajectory segment using the discriminator network.
+        
+        This method takes a batch of trajectory segments and flattens them
+        to pass through the feedforward network, producing a score for each
+        trajectory that indicates how "real" vs "fake" the discriminator
+        believes each trajectory to be.
         
         Args:
             trajectory_segment: Trajectory of shape [batch_size, trajectory_length, state_dim]
             
         Returns:
-            Scores of shape [batch_size, 1]
+            Scores of shape [batch_size, 1] - higher scores indicate more "real" trajectories
+            
+        Raises:
+            ValueError: If trajectory dimensions don't match expected architecture
         """
-        raise NotImplementedError() # type: ignore
+        batch_size, traj_len, state_dim = trajectory_segment.shape
+        
+        # Validate input dimensions
+        if traj_len != self.trajectory_length:
+            raise ValueError(
+                f"Expected trajectory length {self.trajectory_length}, "
+                f"got {traj_len}"
+            )
+        
+        expected_input_size = self.trajectory_length * state_dim
+        if expected_input_size != self.architecture.input_size:
+            raise ValueError(
+                f"Trajectory dimensions ({traj_len} × {state_dim} = {expected_input_size}) "
+                f"don't match architecture input size {self.architecture.input_size}"
+            )
+        
+        # Flatten trajectory for feedforward network: [batch_size, trajectory_length * state_dim]
+        flattened_trajectory = trajectory_segment.view(batch_size, -1)
+        
+        # Pass through the discriminator network
+        scores = self.forward(flattened_trajectory)
+        
+        return scores
 
 class NeuralSDE(nn.Module, NeuralSDEProtocol):
     """

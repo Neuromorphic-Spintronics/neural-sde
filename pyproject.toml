@@ -5,6 +5,7 @@ description = "Command line tool to apply the Neural SDE framework to any time s
 readme = "README.md"
 requires-python = ">=3.13.5"
 dependencies = [
+    "marimo>=0.14.13",
     "matplotlib>=3.10.3",
     "numpy>=2.3.1",
     "pyrefly>=0.24.2",
@@ -30,3 +31,8 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["models*", "systems*", "training*", "parameters*"]
 exclude = ["tests*", "docs*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_duffing_oscillator.py"]
+addopts = ["-v", "--tb=short"]
