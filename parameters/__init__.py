@@ -1,6 +1,6 @@
 # This file initialises the parameters package.
 
-from .duffing_oscillator import DuffingOscillatorParameters
+from .duffing_oscillator import DuffingOscillatorParameters, PhysicalDuffingParameters
 from .hyperparameters import NetworkArchitecture, Hyperparameters
 from typing import Final, Union
 
@@ -19,7 +19,7 @@ HYPERPARAMETERS: Final[Hyperparameters] = Hyperparameters(
 )
 
 DUFFING_OSCILLATOR_PARAMETERS: Final[DuffingOscillatorParameters] = (
-    DuffingOscillatorParameters()
+    PhysicalDuffingParameters().to_dimensionless()
 )
 
 def get_parameters(
