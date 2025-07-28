@@ -88,9 +88,6 @@ def euler_maruyama_step(
             noise_strength = noise_strength.unsqueeze(0)
         dW = generate_wiener_increments(current_state.shape, timestep, current_state.device)
         next_state = next_state + noise_strength * dW
-    # Squeeze batch dimension if input was 1D
-    # if input_was_1d:
-    #     next_state = next_state.squeeze(0)
     return next_state
 
 
