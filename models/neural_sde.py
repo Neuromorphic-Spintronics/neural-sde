@@ -16,11 +16,21 @@ from typing import Optional, Callable
 import torch
 from torch import nn, Tensor
 
-from config import DEVICE
 from parameters.hyperparameters import NetworkArchitecture, Hyperparameters
 from .modules import FeedForwardNetwork
 from .protocols import NeuralSDEProtocol
-from .integrators import auto_select_integrator
+from .integrators import auto_select_integrator, auto_select_matrix_integrator
+
+# Device selection
+def get_device() -> torch.device:
+    """Select the best available device: MPS (Apple Silicon), CUDA (NVIDIA), or CPU."""
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    return torch.device("cpu")
+
+DEVICE = get_device()
 
 class DriftNet(FeedForwardNetwork):
     """
@@ -290,7 +300,7 @@ class DiscriminatorNet(FeedForwardNetwork):
             )
         
         # Flatten trajectory for feedforward network: [batch_size, trajectory_length * state_dim]
-        flattened_trajectory = trajectory_segment.view(batch_size, -1)
+        flattened_trajectory = trajectory_segment.reshape(batch_size, -1)
         
         # Pass through the discriminator network
         scores = self.forward(flattened_trajectory)
@@ -306,6 +316,8 @@ class NeuralSDE(nn.Module, NeuralSDEProtocol):
     The system automatically selects the appropriate integration method:
     - Stochastic Heun method for neural SDEs (when diffusion_net is present)
     - Second-order Runge-Kutta (RK2) method for neural ODEs (when diffusion_net is None)
+    
+    **Important Constraint**: For stochastic systems (when diffusion_net is present), a discriminator network is required for adversarial training. For deterministic systems, the discriminator is optional.
     
     Args:
         hyperparameters: Complete hyperparameter specification including network architectures, provided by the Hyperparameters class
@@ -343,13 +355,168 @@ class NeuralSDE(nn.Module, NeuralSDEProtocol):
         self.timestep = timestep if timestep is not None else hyperparameters.timestep
         self.state_dimension = hyperparameters.state_dimension
         self.input_dimension = hyperparameters.input_dimension
+        self.device = device
+        
+        # Validate hyperparameters
+        self._validate_hyperparameters(hyperparameters)
         
         # Initialise neural networks
-        self.drift_net: DriftNet # required for both neural ODE and SDE
-        self.diffusion_net: Optional[DiffusionNet] # required only for neural SDE
-        self.discriminator_net: Optional[DiscriminatorNet] # required only for neural SDE
+        self.drift_net = DriftNet(
+            architecture=hyperparameters.drift_network,
+            device=device
+        )
         
-        raise NotImplementedError()
+        # Diffusion network is required for stochastic SDEs
+        self.diffusion_net = DiffusionNet(
+            architecture=hyperparameters.diffusion_network,
+            state_dimension=hyperparameters.state_dimension,
+            noise_dimension=self._infer_noise_dimension(hyperparameters),
+            device=device
+        )
+        
+        # For stochastic systems (with diffusion), discriminator is required for adversarial training
+        # For deterministic systems (no diffusion), discriminator is optional
+        if self.diffusion_net is not None:
+            # Stochastic case: discriminator is required
+            if not hasattr(hyperparameters, 'discriminator_network') or hyperparameters.discriminator_network is None:
+                raise ValueError(
+                    "Discriminator network is required for stochastic Neural SDEs "
+                    "(when diffusion network is present) for adversarial training"
+                )
+            self.discriminator_net = DiscriminatorNet(
+                architecture=hyperparameters.discriminator_network,
+                trajectory_length=self._infer_trajectory_length(hyperparameters),
+                device=device
+            )
+        else:
+            # Deterministic case: discriminator is optional
+            if hasattr(hyperparameters, 'discriminator_network') and hyperparameters.discriminator_network is not None:
+                self.discriminator_net = DiscriminatorNet(
+                    architecture=hyperparameters.discriminator_network,
+                    trajectory_length=self._infer_trajectory_length(hyperparameters),
+                    device=device
+                )
+            else:
+                self.discriminator_net = None
+
+    def _validate_hyperparameters(self, hyperparameters: Hyperparameters) -> None:
+        """
+        Validate that hyperparameters are consistent and complete.
+        
+        Args:
+            hyperparameters: Configuration to validate
+            
+        Raises:
+            ValueError: If hyperparameters are invalid
+        """
+        # Check required attributes exist
+        required_attrs = ['drift_network', 'diffusion_network', 'state_dimension', 'input_dimension', 'timestep']
+        for attr in required_attrs:
+            if not hasattr(hyperparameters, attr):
+                raise ValueError(f"Hyperparameters missing required attribute: {attr}")
+            if getattr(hyperparameters, attr) is None:
+                raise ValueError(f"Hyperparameters attribute {attr} cannot be None")
+        
+        # Validate network architectures
+        if not hasattr(hyperparameters.drift_network, 'input_size'):
+            raise ValueError("Drift network architecture missing input_size")
+        if not hasattr(hyperparameters.drift_network, 'output_size'):
+            raise ValueError("Drift network architecture missing output_size")
+        if not hasattr(hyperparameters.diffusion_network, 'input_size'):
+            raise ValueError("Diffusion network architecture missing input_size")
+        if not hasattr(hyperparameters.diffusion_network, 'output_size'):
+            raise ValueError("Diffusion network architecture missing output_size")
+        
+        # Validate timestep is positive
+        if hyperparameters.timestep <= 0:
+            raise ValueError(f"Timestep must be positive, got {hyperparameters.timestep}")
+        
+        # Validate dimensions are positive
+        if hyperparameters.state_dimension <= 0:
+            raise ValueError(f"State dimension must be positive, got {hyperparameters.state_dimension}")
+        if hyperparameters.input_dimension < 0:
+            raise ValueError(f"Input dimension must be non-negative, got {hyperparameters.input_dimension}")
+        
+        # Validate discriminator network is provided for stochastic systems
+        if not hasattr(hyperparameters, 'discriminator_network') or hyperparameters.discriminator_network is None:
+            raise ValueError(
+                "Discriminator network is required for stochastic Neural SDEs "
+                "(when diffusion network is present) for adversarial training"
+            )
+        
+        # Validate discriminator network architecture if provided
+        if hasattr(hyperparameters, 'discriminator_network') and hyperparameters.discriminator_network is not None:
+            if not hasattr(hyperparameters.discriminator_network, 'input_size'):
+                raise ValueError("Discriminator network architecture missing input_size")
+            if not hasattr(hyperparameters.discriminator_network, 'output_size'):
+                raise ValueError("Discriminator network architecture missing output_size")
+            if hyperparameters.discriminator_network.output_size != 1:
+                raise ValueError(
+                    f"Discriminator network output size must be 1, got {hyperparameters.discriminator_network.output_size}"
+                )
+
+    def _infer_noise_dimension(self, hyperparameters: Hyperparameters) -> int:
+        """
+        Infer noise dimension from diffusion network output size. The noise dimension determines the number of independent Brownian motion processes driving the stochastic dynamics.
+        
+        Args:
+            hyperparameters: Configuration containing network architectures
+            
+        Returns:
+            Noise dimension (number of independent Brownian motions)
+            
+        Examples:
+            >>> # Single scalar noise affecting all states
+            >>> state_dim, noise_dim = 3, 1  # output_size = 3
+            >>> 
+            >>> # Independent noise per state variable  
+            >>> state_dim, noise_dim = 3, 3  # output_size = 9
+            >>>
+            >>> # Five coloured noise sources
+            >>> state_dim, noise_dim = 3, 5  # output_size = 15
+        """
+        state_dim = hyperparameters.state_dimension
+        diffusion_output_size = hyperparameters.diffusion_network.output_size
+        
+        # Diffusion matrix is flattened: state_dim * noise_dim = output_size
+        if diffusion_output_size % state_dim != 0:
+            raise ValueError(
+                f"Diffusion network output size {diffusion_output_size} is not "
+                f"divisible by state dimension {state_dim}. "
+                f"Expected output_size = state_dimension * noise_dimension."
+            )
+        
+        noise_dim = diffusion_output_size // state_dim
+        if noise_dim <= 0:
+            raise ValueError(f"Inferred noise dimension {noise_dim} must be positive")
+        
+        return noise_dim
+
+    def _infer_trajectory_length(self, hyperparameters: Hyperparameters) -> int:
+        """
+        Infer trajectory length from discriminator network input size.
+        
+        Args:
+            hyperparameters: Configuration containing network architectures
+            
+        Returns:
+            Trajectory length for discriminator input
+        """
+        state_dim = hyperparameters.state_dimension
+        discriminator_input_size = hyperparameters.discriminator_network.input_size
+        
+        # Discriminator input is flattened trajectory: trajectory_length * state_dim
+        if discriminator_input_size % state_dim != 0:
+            raise ValueError(
+                f"Discriminator network input size {discriminator_input_size} is not "
+                f"divisible by state dimension {state_dim}"
+            )
+        
+        trajectory_length = discriminator_input_size // state_dim # floor division
+        if trajectory_length <= 0:
+            raise ValueError(f"Inferred trajectory length {trajectory_length} must be positive")
+        
+        return trajectory_length
 
     def forward(
         self, 
@@ -377,11 +544,66 @@ class NeuralSDE(nn.Module, NeuralSDEProtocol):
             >>> trajectory = neural_sde(inputs, initial_state=x0)
             >>> print(trajectory.shape)  # torch.Size([32, 3, 100])
         """
+        # Move inputs to the correct device
+        external_inputs = external_inputs.to(self.device)
+        initial_state = initial_state.to(self.device)
+        
+        batch_size, input_dim, num_timesteps = external_inputs.shape
+        state_dim = initial_state.shape[1]
+        
+        # Validate input dimensions
+        if input_dim != self.input_dimension:
+            raise ValueError(
+                f"External input dimension {input_dim} does not match "
+                f"expected input dimension {self.input_dimension}"
+            )
+        if state_dim != self.state_dimension:
+            raise ValueError(
+                f"Initial state dimension {state_dim} does not match "
+                f"expected state dimension {self.state_dimension}"
+            )
 
         # Automatically select integration method based on whether diffusion is present
-        step_integrator: Callable[..., Tensor] = auto_select_integrator(has_diffusion=self.diffusion_net is not None) # noqa: F841
+        step_integrator: Callable[..., Tensor] = auto_select_integrator(has_diffusion=self.diffusion_net is not None)
+        matrix_integrator: Callable[..., Tensor] = auto_select_matrix_integrator(has_diffusion=self.diffusion_net is not None)
 
-        raise NotImplementedError() # type: ignore
+        # Initialise trajectory storage
+        trajectory = torch.zeros(batch_size, state_dim, num_timesteps, device=self.device)
+        current_state = initial_state.clone()
+        current_time = initial_time
+
+        # Simulate trajectory step by step
+        for step in range(num_timesteps):
+            # Store current state
+            trajectory[:, :, step] = current_state
+            
+            # Get external input at this step
+            external_input_at_step = external_inputs[:, :, step]
+            
+            # Create drift function for this step
+            def drift_func(time: float, state: Tensor) -> Tensor:
+                return self._compute_drift_at_step(state, time, external_input_at_step)
+            
+            # Create diffusion matrix function for this step
+            def diffusion_matrix_func(time: float, state: Tensor) -> Tensor:
+                return self._compute_diffusion_at_step(state, time, external_input_at_step)
+            
+            # Integrate one step forward using matrix-aware integration
+            if self.diffusion_net is not None:
+                # Stochastic case - use matrix-aware integrator
+                current_state = matrix_integrator(
+                    drift_func, diffusion_matrix_func, current_state, current_time, self.timestep
+                )
+            else:
+                # Deterministic case - use standard integrator
+                current_state = step_integrator(
+                    drift_func, current_state, current_time, self.timestep
+                )
+            
+            # Update time
+            current_time += self.timestep
+
+        return trajectory
 
     def _compute_drift_at_step(
         self, 
@@ -400,7 +622,11 @@ class NeuralSDE(nn.Module, NeuralSDEProtocol):
         Returns:
             Drift vector [batch_size, state_dim]
         """
-        raise NotImplementedError() # type: ignore
+        # Convert time to tensor with correct batch size
+        batch_size = state.shape[0]
+        time_tensor = torch.full((batch_size,), time, device=state.device)
+        
+        return self.drift_net.compute_drift(state, time_tensor, external_input)
 
     def _compute_diffusion_at_step(
         self, 
@@ -419,7 +645,37 @@ class NeuralSDE(nn.Module, NeuralSDEProtocol):
         Returns:
             Diffusion matrix [batch_size, state_dim, noise_dim] or None if deterministic
         """
-        raise NotImplementedError() # type: ignore
+        if self.diffusion_net is None:
+            return None
+            
+        # Convert time to tensor with correct batch size
+        batch_size = state.shape[0]
+        time_tensor = torch.full((batch_size,), time, device=state.device)
+        
+        return self.diffusion_net.compute_diffusion(state, time_tensor, external_input)
+
+    def _generate_wiener_increments(
+        self, 
+        batch_size: int, 
+        noise_dim: int, 
+        device: torch.device, 
+        timestep: float
+    ) -> Tensor:
+        """
+        Generate Wiener process increments for the noise dimension.
+        
+        Args:
+            batch_size: Number of trajectories
+            noise_dim: Dimension of the noise process
+            device: Device for tensor creation
+            timestep: Integration timestep
+            
+        Returns:
+            Wiener increments of shape [batch_size, noise_dim]
+        """
+        # Generate standard normal random variables and scale by sqrt(timestep)
+        standard_normal = torch.randn(batch_size, noise_dim, device=device)
+        return standard_normal * torch.sqrt(torch.tensor(timestep, device=device))
 
     def get_drift_network(self) -> DriftNet:
         """Return the drift network component."""
@@ -440,4 +696,14 @@ class NeuralSDE(nn.Module, NeuralSDEProtocol):
         Returns:
             Dictionary mapping component names to parameter counts
         """
-        raise NotImplementedError() # type: ignore
+        from .modules import count_network_parameters
+        
+        param_counts = {
+            'drift_net': count_network_parameters(self.drift_net),
+            'diffusion_net': count_network_parameters(self.diffusion_net) if self.diffusion_net else 0,
+            'discriminator_net': count_network_parameters(self.discriminator_net) if self.discriminator_net else 0,
+        }
+        
+        param_counts['total'] = sum(param_counts.values())
+        
+        return param_counts
