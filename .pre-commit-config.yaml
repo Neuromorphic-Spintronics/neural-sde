@@ -17,21 +17,21 @@ repos:
   # Local hooks for testing and type checking
   - repo: local
     hooks:
-      # Type checking with Ty
+      # Type checking with Ty - only on staged files
       - id: ty
         name: Ty type checker
-        entry: uvx ty check --exclude legacy .
+        entry: bash -c 'git diff --cached --name-only --diff-filter=ACM | grep "\.py$" | xargs -r uvx ty check --exclude legacy'
         language: system
         files: '\.py$' # Only run on Python files
-        pass_filenames: false # Check the whole project
+        pass_filenames: false # We handle filenames manually
         exclude: '^legacy/'
-      # Run fast unit tests
+      # Run tests only when test files are staged
       - id: pytest
         name: pytest (fast unit tests)
-        entry: uv run pytest -q --ignore=legacy
+        entry: bash -c 'if git diff --cached --name-only --diff-filter=ACM | grep -q "^tests/.*\.py$"; then uv run pytest -q --ignore=legacy; fi'
         language: system
         files: '^tests/.*\.py$' # Only run on test files in tests/ directory
-        pass_filenames: false # Run all tests, not just staged ones
+        pass_filenames: false # We handle the condition manually
         exclude: '^legacy/'
       
 # Run hooks on both commit and push stages

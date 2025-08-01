@@ -1,7 +1,9 @@
 """
 This module provides numerical integration routines for ordinary differential equations (ODEs) and stochastic differential equations (SDEs).
 
-The module includes both trajectory-based integrators for generating training data and single-step integrators for neural SDE training
+The module includes both trajectory-based integrators for generating training data and single-step integrators for neural SDE training.
+
+The module also supports batching and matrix-aware integrators for neural SDE training.
 
 Implemented trajectory integrators:
 - Euler-Maruyama method for ordinary or stochastic differential equations (the Euler–Maruyama method reduces to the Euler method for ODEs, where `diffusion_function` is `None`)
@@ -11,7 +13,6 @@ Implemented single-step integrators for neural SDE training:
 - Euler-Maruyama single step method (handles both deterministic and stochastic cases)
 - Stochastic Heun single step method  
 - Second-order Runge–Kutta (RK2) single-step method, suitable for deterministic systems and not implemented for stochastic systems.
-
 
 Yet to be implemented:
 - Second-order Runge–Kutta (RK2), suitable for deterministic systems
@@ -421,304 +422,6 @@ def rkf45(
 ) -> None:
     raise NotImplementedError("RKF45 not implemented. Please choose another integrator.")
 
-# Single-step batch integration methods
-def batch_euler_maruyama_step(
-    drift_function: Callable[[float, torch.Tensor], torch.Tensor],
-    diffusion_function: Optional[Callable[[float, torch.Tensor], torch.Tensor]],
-    current_state: torch.Tensor,
-    current_time: float,
-    timestep: float,
-    *,
-    precomputed_noise: Optional[torch.Tensor] = None,
-) -> torch.Tensor:
-    """
-    Batched single step of the Euler-Maruyama method.
-    
-    This computes the Euler-Maruyama method for a batch of trajectories in an efficient manner (single trajectories should be handled by the single-step method, batching with a single dimension may add unnecessary overhead).
-    Key optimisations:
-    - Precomputed noise to avoid repeated random generation
-    - Optimised tensor operations for large batch dimensions
-    - Memory-efficient handling of diffusion matrices
-    
-    Physically, this integrates multiple independent SDE realisations:
-        dX^(i)(t) = drift(t, X^(i)(t)) dt + diffusion(t, X^(i)(t)) dW^(i)(t)
-    where i = 1, ..., batch_size represents different independent noise realisations from the ensemble.
-    
-    Args:
-        drift_function: Function computing the drift term mu(t, x)
-        diffusion_function: Function computing the diffusion term sigma(t, x)
-        current_state: Current state tensor [batch_size, state_dimension]
-        current_time: Current time value
-        timestep: Integration timestep Delta t
-        precomputed_noise: Pre-generated noise [batch_size, noise_dim] or None
-        
-    Returns:
-        Next state tensor [batch_size, state_dimension]
-        
-    Example:
-        >>> # Batch ensemble simulation
-        >>> batch_size = 1000
-        >>> x0 = torch.randn(batch_size, 3)  # Different initial conditions
-        >>> noise = generate_wiener_increments((batch_size, 3), 0.01, device)
-        >>> x1 = batch_euler_maruyama_step(drift, diffusion, x0, 0.0, 0.01, 
-        ...                               precomputed_noise=noise)
-    """
-    device = current_state.device
-    batch_size, state_dim = current_state.shape
-
-    # Compute drift term - vectorised across batch
-    drift_term = drift_function(current_time, current_state)
-    if drift_term.dim() == 0:
-        drift_term = drift_term.unsqueeze(0).expand(batch_size, -1)
-    elif drift_term.dim() == 1:
-        drift_term = drift_term.unsqueeze(0).expand(batch_size, -1)
-
-    # Apply drift update
-    next_state = current_state + timestep * drift_term
-
-    # Add stochastic term if diffusion function is provided
-    if diffusion_function is not None:
-        noise_strength = diffusion_function(current_time, current_state)
-        
-        # Generate or use precomputed noise
-        if precomputed_noise is None:
-            dW = generate_wiener_increments(current_state.shape, timestep, device)
-        else:
-            dW = precomputed_noise
-        next_state = next_state + noise_strength * dW
-    return next_state
-
-def batch_stochastic_heun_step(
-    drift_function: Callable[[float, torch.Tensor], torch.Tensor],
-    diffusion_function: Callable[[float, torch.Tensor], torch.Tensor],
-    current_state: torch.Tensor,
-    current_time: float,
-    timestep: float,
-    *,
-    precomputed_noise: Optional[torch.Tensor] = None,
-) -> torch.Tensor:
-    """
-    Batched single step of the stochastic Heun method.
-    
-    Implements the second-order predictor-corrector scheme for batched trajectories:
-    1. Predictor: Y_{n+1}^(i) = X_n^(i) + drift(t_n, X_n^(i)) * dt + sigma(t_n, X_n^(i)) * dW_n^(i)
-    2. Corrector: X_{n+1}^(i) = X_n^(i) + 0.5 * [drift(t_n, X_n^(i)) + drift(t_{n+1}, Y_{n+1}^(i))] * dt + sigma(t_n, X_n^(i)) * dW_n^(i)
-    
-    This method provides higher-order accuracy for batched ensemble simulations.
-    
-    Args:
-        drift_function: Function computing the drift term
-        diffusion_function: Function computing the diffusion term  
-        current_state: Current state tensor [batch_size, state_dimension]
-        current_time: Current time value
-        timestep: Integration timestep
-        precomputed_noise: Pre-generated noise [batch_size, noise_dim] or None
-        
-    Returns:
-        Next state tensor [batch_size, state_dimension]
-    """
-    device = current_state.device
-    
-    # Generate or use precomputed noise
-    if precomputed_noise is None:
-        dW = generate_wiener_increments(current_state.shape, timestep, device)
-    else:
-        dW = precomputed_noise
-
-    # Current drift and diffusion
-    drift_term = drift_function(current_time, current_state)
-    noise_strength = diffusion_function(current_time, current_state)
-    noise_update = noise_strength * dW
-    predictor_state = current_state + timestep * drift_term + noise_update
-
-    # Drift at predictor point
-    drift_term_predictor = drift_function(current_time + timestep, predictor_state)
-
-    # Corrector step: use average of drift terms
-    next_state = current_state + 0.5 * timestep * (drift_term + drift_term_predictor) + noise_update
-    
-    return next_state
-
-# Batch integrate entire trajectory
-def batch_integrate_trajectory(
-    step_integrator: Callable,
-    drift_function: Callable[[float, torch.Tensor], torch.Tensor],
-    diffusion_function: Optional[Callable[[float, torch.Tensor], torch.Tensor]],
-    initial_state: torch.Tensor,
-    initial_time: float,
-    final_time: float,
-    timestep: float,
-    *,
-    batch_noise_generation: bool = True,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Batched trajectory integration for ensemble simulations.
-    
-    This function integrates multiple trajectories simultaneously with optimisations:
-    - Batch noise pre-generation for entire trajectory
-    - Vectorised operations across batch dimension
-    - Memory-efficient tensor management
-    
-    Physically, this simulates an ensemble of noise trajectories.
-    
-    Args:
-        step_integrator: Single-step integration function (e.g., batch_euler_maruyama_step)
-        drift_function: Drift function mu(t, x)
-        diffusion_function: Diffusion function sigma(t, x) or None
-        initial_state: Initial conditions [batch_size, state_dimension]
-        initial_time: Starting time t0
-        final_time: Ending time T
-        timestep: Integration step dt
-        batch_noise_generation: Whether to pre-generate all noise for the entire trajectory
-        
-    Returns:
-        Tuple of (times, trajectories) where:
-        - times: Time grid [num_steps + 1]
-        - trajectories: Solution paths [num_steps + 1, batch_size, state_dimension]
-        
-    Example:
-        >>> # Ensemble simulation with 1000 noise realisations
-        >>> batch_size = 1000
-        >>> x0 = torch.randn(batch_size, 3)  # Random initial conditions
-        >>> times, trajs = batch_integrate_trajectory(
-        ...     batch_euler_maruyama_step, drift, diffusion, x0, 0.0, 1.0, 0.01
-        ... )
-        >>> # Compute ensemble statistics
-        >>> mean_traj = trajs.mean(dim=1)  # [num_steps + 1, state_dimension]
-        >>> std_traj = trajs.std(dim=1)    # [num_steps + 1, state_dimension]
-    """
-    device = initial_state.device
-    batch_size, state_dim = initial_state.shape
-    
-    # Time grid
-    num_steps = int((final_time - initial_time) / timestep)
-    times = torch.linspace(initial_time, final_time, num_steps + 1, device=device)
-    
-    # Trajectory storage [time, batch, state]
-    trajectories = torch.zeros(num_steps + 1, batch_size, state_dim, device=device)
-    trajectories[0] = initial_state
-    
-    # Pre-generate noise for entire trajectory if requested
-    if batch_noise_generation and diffusion_function is not None:
-        # Vector/diagonal diffusion only: [batch, state_dim]
-        noise_shape = (num_steps, batch_size, state_dim)
-        batch_noise = generate_wiener_increments(noise_shape, timestep, device)
-    
-    # Integration loop
-    current_state = initial_state
-    for i in range(num_steps):
-        current_time = times[i].item()
-        
-        # Get noise for this step
-        if batch_noise_generation and diffusion_function is not None:
-            step_noise = batch_noise[i]
-        else:
-            step_noise = None
-        
-        # Integration step
-        if diffusion_function is not None:
-            # Check if step_integrator supports precomputed_noise
-            if 'precomputed_noise' in inspect.signature(step_integrator).parameters:
-                current_state = step_integrator(
-                    drift_function, diffusion_function, current_state, 
-                    current_time, timestep, precomputed_noise=step_noise
-                )
-            else:
-                current_state = step_integrator(
-                    drift_function, diffusion_function, current_state, 
-                    current_time, timestep
-                )
-        else:
-            # Deterministic case
-            current_state = step_integrator(
-                drift_function, None, current_state, current_time, timestep
-            )
-        
-        trajectories[i + 1] = current_state
-    
-    return times, trajectories
-
-
-def batch_euler_maruyama(
-    drift: Callable[[float, torch.Tensor], torch.Tensor],
-    diffusion: Optional[Callable[[float, torch.Tensor], torch.Tensor]],
-    y0: torch.Tensor,
-    t0: float,
-    tN_t: float,
-    dt: float,
-    *,
-    batch_noise_generation: bool = True,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Batched Euler-Maruyama method for ensemble SDE simulation.
-    
-    Args:
-        drift: Drift function mu(t, x)
-        diffusion: Diffusion function sigma(t, x) or None for deterministic case
-        y0: Initial conditions [batch_size, state_dimension]
-        t0: Initial time
-        tN_t: Final time  
-        dt: Time step
-        batch_noise_generation: Enable batch noise pre-generation
-        
-    Returns:
-        Tuple of (times, trajectories) with shapes:
-        - times: [num_steps + 1]
-        - trajectories: [num_steps + 1, batch_size, state_dimension]
-    """
-    return batch_integrate_trajectory(
-        step_integrator=batch_euler_maruyama_step,
-        drift_function=drift,
-        diffusion_function=diffusion,
-        initial_state=y0,
-        initial_time=t0,
-        final_time=tN_t,
-        timestep=dt,
-        batch_noise_generation=batch_noise_generation,
-    )
-
-
-def batch_stochastic_heun_method(
-    drift: Callable[[float, torch.Tensor], torch.Tensor],
-    diffusion: Callable[[float, torch.Tensor], torch.Tensor],
-    y0: torch.Tensor,
-    t0: float,
-    tN_t: float,
-    dt: float,
-    *,
-    batch_noise_generation: bool = True,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Batched stochastic Heun method for ensemble SDE simulation.
-    
-    Provides higher-order accuracy compared to Euler-Maruyama for batched
-    ensemble simulations with optimised memory and computational efficiency.
-    
-    Args:
-        drift: Drift function mu(t, x)
-        diffusion: Diffusion function sigma(t, x)
-        y0: Initial conditions [batch_size, state_dimension]
-        t0: Initial time
-        tN_t: Final time
-        dt: Time step
-        batch_noise_generation: Enable batch noise pre-generation
-        
-    Returns:
-        Tuple of (times, trajectories) with shapes:
-        - times: [num_steps + 1]
-        - trajectories: [num_steps + 1, batch_size, state_dimension]
-    """
-    return batch_integrate_trajectory(
-        step_integrator=batch_stochastic_heun_step,
-        drift_function=drift,
-        diffusion_function=diffusion,
-        initial_state=y0,
-        initial_time=t0,
-        final_time=tN_t,
-        timestep=dt,
-        batch_noise_generation=batch_noise_generation,
-    )
-
 # Helper functions
 def generate_wiener_increments(
     shape: tuple[int, ...], 
@@ -746,3 +449,199 @@ def generate_wiener_increments(
     """
     sqrt_dt = timestep ** 0.5
     return torch.randn(shape, device=device) * sqrt_dt
+
+
+"""
+Matrix-diffusion-aware integrators for Neural SDEs
+
+These integrators handle the general neural SDE form:
+    dX(t) = mu(X(t), t, u(t)) dt + sigma(X(t), t, u(t)) dW(t)
+    
+where:
+- mu: drift function returning [batch_size, state_dim]
+- sigma: diffusion matrix function returning [batch_size, state_dim, noise_dim]
+- dW: noise_dim-dimensional Wiener process
+"""
+
+def matrix_euler_maruyama_step(
+    drift_function: Callable[[float, torch.Tensor], torch.Tensor],
+    diffusion_matrix_function: Callable[[float, torch.Tensor], torch.Tensor],
+    current_state: torch.Tensor,
+    current_time: float,
+    timestep: float,
+    *,
+    precomputed_noise: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    """
+    Matrix-diffusion-aware Euler-Maruyama integration step for neural SDEs.
+    
+    Integrates neural SDEs of the form:
+        dX(t) = mu(X(t), t) dt + sigma(X(t), t) dW(t)
+    
+    where sigma(X(t), t) is a [state_dim × noise_dim] matrix and dW(t) is 
+    noise_dim-dimensional Brownian motion.
+    
+    Discretisation:
+        X_{n+1} = X_n + mu(t_n, X_n) * dt + sigma(t_n, X_n) @ dW_n
+    
+    Args:
+        drift_function: Function mu(t, x) returning [batch_size, state_dim]
+        diffusion_matrix_function: Function sigma(t, x) returning [batch_size, state_dim, noise_dim]
+        current_state: Current state [batch_size, state_dim]
+        current_time: Current time t
+        timestep: Integration timestep dt
+        precomputed_noise: Pre-generated noise [batch_size, noise_dim] or None
+        
+    Returns:
+        Next state [batch_size, state_dim]
+        
+    Example:
+        >>> def drift(t, x): return -0.1 * x  # Damping
+        >>> def diffusion_matrix(t, x): 
+        ...     # Return 3x2 diffusion matrix for each batch element
+        ...     batch_size = x.shape[0]
+        ...     return torch.randn(batch_size, 3, 2) * 0.1
+        >>> x0 = torch.randn(32, 3)
+        >>> x1 = matrix_euler_maruyama_step(drift, diffusion_matrix, x0, 0.0, 0.01)
+    """
+    device = current_state.device
+    batch_size, state_dim = current_state.shape
+    
+    # Compute drift term: mu(t, x)
+    drift_term = drift_function(current_time, current_state)
+    if drift_term.dim() == 0:
+        drift_term = drift_term.unsqueeze(0).expand(batch_size, -1)
+    elif drift_term.dim() == 1:
+        drift_term = drift_term.unsqueeze(0).expand(batch_size, -1)
+    
+    # Apply drift update
+    next_state = current_state + timestep * drift_term
+    
+    # Compute diffusion matrix: sigma(t, x)
+    diffusion_matrix = diffusion_matrix_function(current_time, current_state)
+    
+    if diffusion_matrix is not None:
+        # Extract noise dimension from diffusion matrix shape
+        batch_size_check, state_dim_check, noise_dim = diffusion_matrix.shape
+        assert batch_size_check == batch_size and state_dim_check == state_dim, \
+            f"Diffusion matrix shape mismatch: expected [{batch_size}, {state_dim}, noise_dim], got {diffusion_matrix.shape}"
+        
+        # Generate or use precomputed noise
+        if precomputed_noise is None:
+            dW = generate_wiener_increments((batch_size, noise_dim), timestep, device)
+        else:
+            dW = precomputed_noise
+            
+        # Compute matrix-vector product: sigma @ dW
+        # diffusion_matrix: [batch_size, state_dim, noise_dim]
+        # dW: [batch_size, noise_dim] -> [batch_size, noise_dim, 1]
+        # Result: [batch_size, state_dim, 1] -> [batch_size, state_dim]
+        diffusion_update = torch.bmm(diffusion_matrix, dW.unsqueeze(-1)).squeeze(-1)
+        next_state = next_state + diffusion_update
+        
+    return next_state
+
+
+def matrix_stochastic_heun_step(
+    drift_function: Callable[[float, torch.Tensor], torch.Tensor],
+    diffusion_matrix_function: Callable[[float, torch.Tensor], torch.Tensor],
+    current_state: torch.Tensor,
+    current_time: float,
+    timestep: float,
+    *,
+    precomputed_noise: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    """
+    Matrix-diffusion-aware Stochastic Heun integration step for neural SDEs.
+    
+    This implements the matrix-aware version of the stochastic Heun method,
+    providing second-order accuracy for the drift term while properly handling
+    matrix diffusion.
+    
+    Predictor-corrector scheme:
+    1. Predictor: Y_{n+1} = X_n + mu(t_n, X_n) * dt + sigma(t_n, X_n) @ dW_n
+    2. Corrector: X_{n+1} = X_n + 0.5 * [mu(t_n, X_n) + mu(t_{n+1}, Y_{n+1})] * dt + sigma(t_n, X_n) @ dW_n
+    
+    Args:
+        drift_function: Function mu(t, x) returning [batch_size, state_dim]
+        diffusion_matrix_function: Function sigma(t, x) returning [batch_size, state_dim, noise_dim]
+        current_state: Current state [batch_size, state_dim]
+        current_time: Current time t
+        timestep: Integration timestep dt
+        precomputed_noise: Pre-generated noise [batch_size, noise_dim] or None
+        
+    Returns:
+        Next state [batch_size, state_dim]
+    """
+    device = current_state.device
+    batch_size, state_dim = current_state.shape
+    
+    # Compute current drift: mu(t, x)
+    drift_current = drift_function(current_time, current_state)
+    if drift_current.dim() == 0:
+        drift_current = drift_current.unsqueeze(0).expand(batch_size, -1)
+    elif drift_current.dim() == 1:
+        drift_current = drift_current.unsqueeze(0).expand(batch_size, -1)
+    
+    # Compute diffusion matrix: sigma(t, x)
+    diffusion_matrix = diffusion_matrix_function(current_time, current_state)
+    
+    if diffusion_matrix is None:
+        # Deterministic case: just second-order Runge-Kutta
+        drift_predictor = drift_function(current_time + timestep, current_state + timestep * drift_current)
+        return current_state + 0.5 * timestep * (drift_current + drift_predictor)
+    
+    # Stochastic case with matrix diffusion
+    batch_size_check, state_dim_check, noise_dim = diffusion_matrix.shape
+    assert batch_size_check == batch_size and state_dim_check == state_dim
+    
+    # Generate or use precomputed noise (same for predictor and corrector)
+    if precomputed_noise is None:
+        dW = generate_wiener_increments((batch_size, noise_dim), timestep, device)
+    else:
+        dW = precomputed_noise
+        
+    # Compute diffusion update: sigma @ dW (same for both steps)
+    diffusion_update = torch.bmm(diffusion_matrix, dW.unsqueeze(-1)).squeeze(-1)
+    
+    # Predictor step
+    predictor_state = current_state + drift_current * timestep + diffusion_update
+    
+    # Compute drift at predictor point
+    drift_predictor = drift_function(current_time + timestep, predictor_state)
+    if drift_predictor.dim() == 0:
+        drift_predictor = drift_predictor.unsqueeze(0).expand(batch_size, -1)
+    elif drift_predictor.dim() == 1:
+        drift_predictor = drift_predictor.unsqueeze(0).expand(batch_size, -1)
+    
+    # Corrector step: average the drift terms
+    drift_average = 0.5 * (drift_current + drift_predictor)
+    
+    return current_state + drift_average * timestep + diffusion_update
+
+
+def auto_select_matrix_integrator(
+    has_diffusion: bool,
+) -> Callable[..., torch.Tensor]:
+    """
+    Automatically select the appropriate matrix-diffusion-aware integrator.
+    
+    Args:
+        has_diffusion: Whether the system includes matrix diffusion terms
+        
+    Returns:
+        Matrix-aware integrator function appropriate for the system type
+        
+    Example:
+        >>> # For neural SDE with matrix diffusion
+        >>> integrator = auto_select_matrix_integrator(has_diffusion=True)
+        >>> # Returns matrix_stochastic_heun_step
+        >>> 
+        >>> # For deterministic neural ODE
+        >>> integrator = auto_select_matrix_integrator(has_diffusion=False)
+        >>> # Returns runge_kutta_2_step (from standard integrators)
+    """
+    if has_diffusion:
+        return matrix_stochastic_heun_step
+    else:
+        return runge_kutta_2_step
