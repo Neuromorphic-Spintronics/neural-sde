@@ -1,7 +1,7 @@
 """
 This module provides numerical integration routines for ordinary differential equations (ODEs) and stochastic differential equations (SDEs).
 
-The module includes both trajectory-based integrators for generating training data and single-step integrators for neural SDE training.ArithmeticError
+The module includes both trajectory-based integrators for generating training data and single-step integrators for neural SDE training.
 
 The module also supports batching and matrix-aware integrators for neural SDE training.
 
