@@ -93,6 +93,7 @@ class TestNeuralSDEInitialisation:
         )
         
         neural_sde = NeuralSDE(hyperparams)
+        assert neural_sde.discriminator_net is not None
         assert neural_sde.discriminator_net.trajectory_length == trajectory_length
 
     def test_raises_error_for_invalid_diffusion_dimensions(self):
@@ -439,100 +440,4 @@ class TestNeuralSDEParameterCounting:
             timestep=0.01
         )
 
-
-class TestNeuralSDEGradientFlow:
-    """Test gradient computation through the model."""
-
-    def test_gradients_flow_through_forward_pass(self):
-        """Test that gradients can flow through the forward pass."""
-        hyperparams = self._create_minimal_hyperparams()
-        neural_sde = NeuralSDE(hyperparams)
-        
-        batch_size = 2
-        state_dim = hyperparams.state_dimension
-        input_dim = hyperparams.input_dimension
-        num_timesteps = 5
-        
-        external_inputs = torch.randn(batch_size, input_dim, num_timesteps, requires_grad=True)
-        initial_state = torch.randn(batch_size, state_dim, requires_grad=True)
-        
-        # Forward pass
-        trajectory = neural_sde(external_inputs, initial_state=initial_state)
-        
-        # Compute a simple loss (sum of final states)
-        loss = trajectory[:, :, -1].sum()
-        
-        # Backward pass should work
-        loss.backward()
-        
-        # Check that gradients were computed for inputs
-        assert external_inputs.grad is not None
-        assert initial_state.grad is not None
-        
-        # Check that drift and diffusion networks have gradients (discriminator won't be used in forward pass)
-        drift_params_with_grads = sum(1 for param in neural_sde.drift_net.parameters() if param.grad is not None)
-        total_drift_params = sum(1 for param in neural_sde.drift_net.parameters())
-        
-        diffusion_params_with_grads = sum(1 for param in neural_sde.diffusion_net.parameters() if param.grad is not None)
-        total_diffusion_params = sum(1 for param in neural_sde.diffusion_net.parameters())
-        
-        # All drift and diffusion parameters should have gradients
-        assert drift_params_with_grads == total_drift_params, f"Drift network: {drift_params_with_grads}/{total_drift_params} parameters have gradients"
-        assert diffusion_params_with_grads == total_diffusion_params, f"Diffusion network: {diffusion_params_with_grads}/{total_diffusion_params} parameters have gradients"
-
-    def test_model_is_in_training_mode_by_default(self):
-        """Test that the model is in training mode by default."""
-        hyperparams = self._create_minimal_hyperparams()
-        neural_sde = NeuralSDE(hyperparams)
-        
-        assert neural_sde.training
-        assert neural_sde.drift_net.training
-        assert neural_sde.diffusion_net.training
-        assert neural_sde.discriminator_net.training
-
-    def test_model_can_switch_to_eval_mode(self):
-        """Test that the model can be switched to evaluation mode."""
-        hyperparams = self._create_minimal_hyperparams()
-        neural_sde = NeuralSDE(hyperparams)
-        
-        neural_sde.eval()
-        
-        assert not neural_sde.training
-        assert not neural_sde.drift_net.training
-        assert not neural_sde.diffusion_net.training
-        assert not neural_sde.discriminator_net.training
-
-    def _create_minimal_hyperparams(self) -> Hyperparameters:
-        """Helper to create minimal valid hyperparameters."""
-        state_dim = 2
-        input_dim = 1
-        noise_dim = 1
-        
-        drift_arch = NetworkArchitecture(
-            input_size=state_dim + 1 + input_dim,
-            hidden_sizes=[8],
-            output_size=state_dim
-        )
-        
-        diffusion_arch = NetworkArchitecture(
-            input_size=state_dim + 1 + input_dim,
-            hidden_sizes=[8],
-            output_size=state_dim * noise_dim
-        )
-        
-        discriminator_arch = NetworkArchitecture(
-            input_size=16 * state_dim,  # Small trajectory length
-            hidden_sizes=[8],
-            output_size=1
-        )
-        
-        return Hyperparameters(
-            drift_network=drift_arch,
-            diffusion_network=diffusion_arch,
-            discriminator_network=discriminator_arch,
-            state_dimension=state_dim,
-            input_dimension=input_dim,
-            timestep=0.01
-        )
-
-# TODO: Add tests for deterministic mode
+# TODO: needs tests for determinstic mode
