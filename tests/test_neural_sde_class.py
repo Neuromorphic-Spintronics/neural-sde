@@ -440,4 +440,4 @@ class TestNeuralSDEParameterCounting:
             timestep=0.01
         )
 
-# TODO: needs tests for determinstic mode
+# TODO: needs tests for deterministic mode
