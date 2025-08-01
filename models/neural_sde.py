@@ -300,7 +300,7 @@ class DiscriminatorNet(FeedForwardNetwork):
             )
         
         # Flatten trajectory for feedforward network: [batch_size, trajectory_length * state_dim]
-        flattened_trajectory = trajectory_segment.reshape(batch_size, -1)
+        flattened_trajectory = trajectory_segment.view(batch_size, -1)
         
         # Pass through the discriminator network
         scores = self.forward(flattened_trajectory)
