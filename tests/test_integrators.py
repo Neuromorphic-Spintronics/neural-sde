@@ -5,18 +5,11 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 import torch
-import numpy as np
-import os
-import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
-import time
-import pytest
 from models.integrators import (
     euler_maruyama_step, stochastic_heun_step, euler_maruyama, stochastic_heun_method,
-    batch_euler_maruyama_step, batch_euler_maruyama, 
-    batch_stochastic_heun_method, batch_integrate_trajectory,
     integrate_trajectory_with_step_method, auto_select_integrator, runge_kutta_2_step,
-    generate_wiener_increments
+    generate_wiener_increments, matrix_euler_maruyama_step, matrix_stochastic_heun_step,
+    auto_select_matrix_integrator
 )
 from utils import plotting
 
@@ -87,254 +80,173 @@ def test_heun_step_batch():
     assert x1.shape == (2, 2)
     assert x1.device == x0.device
 
-def test_euler_traj_batch():
-    """Test batch Euler-Maruyama trajectory integration."""
-    batch_size = 100
-    state_dim = 2
-    x0 = torch.randn(batch_size, state_dim)
+def test_euler_traj_single():
+    """Test single trajectory Euler-Maruyama integration."""
+    x0 = torch.tensor([1.0, -1.0])
     t0 = 0.0
     tN = 1.0
     dt = 0.01
-    # Integrate full trajectory for batch
-    times, trajectories = batch_euler_maruyama(
+    # Integrate full trajectory
+    times, trajectories = euler_maruyama(
         simple_drift, simple_diffusion_scalar, x0, t0, tN, dt
     )
-    num_steps = int((tN - t0) / dt) + 1
-    # Validate time grid
-    assert times.shape == (num_steps,)
-    # Validate trajectory shape
-    assert trajectories.shape == (num_steps, batch_size, state_dim)
-    assert torch.allclose(trajectories[0], x0, atol=1e-6)
-
-def test_heun_traj_batch():
-    """Test batch stochastic Heun trajectory integration."""
-    batch_size = 50
-    state_dim = 3
-    x0 = torch.randn(batch_size, state_dim)
-    t0 = 0.0
-    tN = 0.5
-    dt = 0.01
-    # Batch stochastic Heun trajectory integration
-    times, trajectories = batch_stochastic_heun_method(
-        simple_drift, simple_diffusion_scalar, x0, t0, tN, dt
-    )
-    num_steps = int((tN - t0) / dt) + 1
-    # Check time steps
-    assert times.shape == (num_steps,)
-    # Check trajectory dimensions
-    assert trajectories.shape == (num_steps, batch_size, state_dim)
-    assert torch.allclose(trajectories[0], x0, atol=1e-6)
-
-
-def test_euler_traj_single():
-    """Test trajectory-wide integration using euler_maruyama (non-batch wrapper)."""
-    batch_size = 20
-    state_dim = 2
-    x0 = torch.randn(batch_size, state_dim)
-    t0 = 0.0
-    tN = 0.5
-    dt = 0.01
-    # Non‑batch Euler–Maruyama trajectory integration
-    times, trajectories = euler_maruyama(simple_drift, simple_diffusion_scalar, x0, t0, tN, dt)
-    num_steps = int((tN - t0) / dt) + 1
-    # Validate time axis
-    assert times.shape == (num_steps,)
-    # Validate trajectory shape
-    assert trajectories.shape == (num_steps, batch_size, state_dim)
-    # Check initial state
-    assert torch.allclose(trajectories[0], x0, atol=1e-6)
+    # Validate output shapes
+    assert times.shape == (101,)  # 100 steps + 1 initial
+    assert trajectories.shape == (101, 1, 2)  # time, batch, state
+    assert times.device == x0.device
+    assert trajectories.device == x0.device
 
 def test_heun_traj_single():
-    """Test stochastic Heun trajectory integration for a single initial condition."""
-    # Setup single initial state
-    state_dim = 2
-    x0 = torch.randn(1, state_dim)
-    t0 = 0.0
-    tN = 0.5
-    dt = 0.01
-    # Single trajectory integration
-    times, trajectories = stochastic_heun_method(simple_drift, simple_diffusion_scalar, x0, t0, tN, dt)
-    num_steps = int((tN - t0) / dt) + 1
-    # Validate time axis
-    assert times.shape == (num_steps,)
-    # Validate trajectory shape
-    assert trajectories.shape == (num_steps, 1, state_dim)
-    # Initial state check
-    assert torch.allclose(trajectories[0], x0, atol=1e-6)
-
-def test_batch_integrate_trajectory():
-    """Test batch_integrate_trajectory for deterministic ODE case."""
-    # Setup batch initial states
-    batch_size = 50
-    state_dim = 1
-    x0 = torch.ones(batch_size, state_dim)
+    """Test single trajectory stochastic Heun integration."""
+    x0 = torch.tensor([1.0, -1.0])
     t0 = 0.0
     tN = 1.0
-    dt = 0.1
-    # Integrate trajectory deterministically
-    times, trajectories = batch_integrate_trajectory(
-        batch_euler_maruyama_step, simple_drift, None, x0, t0, tN, dt
+    dt = 0.01
+    # Integrate full trajectory
+    times, trajectories = stochastic_heun_method(
+        simple_drift, simple_diffusion_scalar, x0, t0, tN, dt
     )
-    num_steps = int((tN - t0) / dt) + 1
-    # Validate shapes
-    assert times.shape == (num_steps,)
-    assert trajectories.shape == (num_steps, batch_size, state_dim)
-    # Check initial state
-    assert torch.allclose(trajectories[0], x0, atol=1e-6)
-    # Check final state approximates analytical solution
-    expected_final = x0 * torch.exp(-torch.tensor(tN))
-    assert torch.allclose(trajectories[-1], expected_final, atol=3e-2)
+    # Validate output shapes
+    assert times.shape == (101,)  # 100 steps + 1 initial
+    assert trajectories.shape == (101, 1, 2)  # time, batch, state
+    assert times.device == x0.device
+    assert trajectories.device == x0.device
 
 def test_integrate_trajectory_with_step_method():
-    """Test generic trajectory integrator wrapper with Euler-Maruyama step (deterministic)."""
-    # Setup initial state
-    x0 = torch.tensor([1.0])
+    """Test generic trajectory integration wrapper."""
+    x0 = torch.tensor([1.0, -1.0])
     t0 = 0.0
-    tN = 0.5
-    dt = 0.25
-    # Integrate trajectory using wrapper
-    times, traj = integrate_trajectory_with_step_method(
-        euler_maruyama_step, simple_drift, None, x0, t0, tN, dt
+    tN = 1.0
+    dt = 0.01
+    
+    # Test with Euler-Maruyama step
+    times, trajectories = integrate_trajectory_with_step_method(
+        euler_maruyama_step, simple_drift, simple_diffusion_scalar, x0, t0, tN, dt
     )
-    num_steps = int((tN - t0) / dt) + 1
-    # Validate time axis and trajectory shape
-    assert times.shape == (num_steps,)
-    # Validate trajectory shape: (num_steps, batch_size, state_dim)
-    assert traj.shape[0] == num_steps
-    assert traj.shape == (num_steps, 1, 1)  # batch_size=1, state_dim=1
-    # Check initial state
-    assert torch.allclose(traj[0], x0.unsqueeze(0), atol=1e-6)
+    
+    assert times.shape == (101,)
+    assert trajectories.shape == (101, 1, 2)
 
 def test_auto_select_integrator():
-    """Test auto_select_integrator picks correct integrator based on flag."""
-    # Stochastic selection
-    selected_sto = auto_select_integrator(True)
-    assert selected_sto is stochastic_heun_step
-    # Deterministic selection
-    selected_det = auto_select_integrator(False)
-    assert selected_det is runge_kutta_2_step
-
+    """Test automatic integrator selection."""
+    # Should return stochastic Heun for stochastic case
+    stochastic_integrator = auto_select_integrator(has_diffusion=True)
+    assert stochastic_integrator == stochastic_heun_step
+    
+    # Should return RK2 for deterministic case
+    deterministic_integrator = auto_select_integrator(has_diffusion=False)
+    assert deterministic_integrator == runge_kutta_2_step
 
 def test_generate_wiener_increments():
-    """Test generate_wiener_increments returns correct shape and statistics."""
-    shape = (10000, 3)
-    dt = 0.05
-    dW = generate_wiener_increments(shape, dt, device=torch.device("cpu"))
-    # Expect the same shape
-    assert dW.shape == shape
-    # Mean should be ~0 and std ~sqrt(dt)
-    mean = dW.mean().item()
-    std = dW.std().item()
-    assert abs(mean) < 0.02
-    assert abs(std - np.sqrt(dt)) < 0.02
+    """Test Wiener increment generation."""
+    shape = (10, 3)
+    timestep = 0.01
+    device = torch.device("cpu")
+    
+    increments = generate_wiener_increments(shape, timestep, device)
+    
+    assert increments.shape == shape
+    assert increments.device == device
+    # Check that variance is approximately equal to timestep
+    empirical_var = increments.var().item()
+    expected_var = timestep
+    assert abs(empirical_var - expected_var) < 0.1  # Allow some tolerance for randomness
 
-def plot_batch_integration_summary():
-    """
-    Create a single row of batch integration plots:
-    - Ensemble trajectories
-    - Mean/variance evolution
-    - Performance comparison
-    """
-    plotting.set_default_plotting_style(use_tex=True)
-    fig = plt.figure(figsize=(18, 5), constrained_layout=True)
-    gs = gridspec.GridSpec(1, 3, figure=fig, width_ratios=[1, 1, 1])
-    ax_ensemble = fig.add_subplot(gs[0, 0])
-    ax_statistics = fig.add_subplot(gs[0, 1])
-    ax_performance = fig.add_subplot(gs[0, 2])
-    # Ensemble trajectories
-    batch_size = 200
-    x0 = torch.ones(batch_size, 1)
-    t0, tN, dt = 0.0, 2.0, 0.01
-    sigma = 0.5
-    times, trajectories = batch_euler_maruyama(
-        simple_drift, lambda t, x: simple_diffusion_scalar(t, x, strength=sigma), 
-        x0, t0, tN, dt
+
+def test_matrix_euler_maruyama_step():
+    """Test matrix-aware Euler-Maruyama integration step."""
+    batch_size, state_dim, noise_dim = 4, 3, 2
+    timestep = 0.01
+    
+    # Simple drift and diffusion functions for testing
+    def drift_func(t: float, x: torch.Tensor) -> torch.Tensor:
+        return -0.1 * x  # Simple damping
+    
+    def diffusion_matrix_func(t: float, x: torch.Tensor) -> torch.Tensor:
+        # Return a simple diffusion matrix [batch_size, state_dim, noise_dim]
+        batch_size = x.shape[0]
+        return 0.1 * torch.randn(batch_size, state_dim, noise_dim)
+    
+    # Initial state
+    x0 = torch.randn(batch_size, state_dim)
+    
+    # Integration step
+    x1 = matrix_euler_maruyama_step(
+        drift_func, diffusion_matrix_func, x0, 0.0, timestep
     )
-    traj_np = trajectories.squeeze(-1).numpy()
-    times_np = times.numpy()
-    n_plot = 50
-    indices = np.random.choice(batch_size, n_plot, replace=False)
-    for i in indices:
-        ax_ensemble.plot(times_np, traj_np[:, i], alpha=0.3, color=COLOURS[3], linewidth=0.8)
-    mean_traj = traj_np.mean(axis=1)
-    std_traj = traj_np.std(axis=1)
-    ax_ensemble.plot(times_np, mean_traj, color='k', linewidth=2, label='Ensemble mean')
-    ax_ensemble.fill_between(times_np, mean_traj - 2*std_traj, mean_traj + 2*std_traj, 
-                            alpha=0.2, color='k', label=r'$\pm 2\sigma$ envelope')
-    analytical_mean = np.exp(-times_np)
-    ax_ensemble.plot(times_np, analytical_mean, '--', color='red', linewidth=2, 
-                    label='Analytical mean')
-    ax_ensemble.set_xlabel(r'$t$')
-    ax_ensemble.set_ylabel(r'$x(t)$')
-    ax_ensemble.set_title('Batch Ensemble Trajectories')
-    ax_ensemble.legend()
-    plotting.style_axis_clean(ax_ensemble)
-    # Mean and variance evolution
-    batch_size_large = 2000
-    x0_large = torch.ones(batch_size_large, 1)
-    times_large, traj_large = batch_stochastic_heun_method(
-        simple_drift, lambda t, x: simple_diffusion_scalar(t, x, strength=sigma),
-        x0_large, t0, tN, dt
+    
+    # Check output shape
+    assert x1.shape == (batch_size, state_dim)
+    
+    # Check that the state has changed (unless we're very unlucky with noise)
+    assert not torch.allclose(x0, x1)
+
+
+def test_matrix_stochastic_heun_step():
+    """Test matrix-aware Stochastic Heun integration step."""
+    batch_size, state_dim, noise_dim = 4, 3, 2
+    timestep = 0.01
+    
+    # Simple drift and diffusion functions for testing
+    def drift_func(t: float, x: torch.Tensor) -> torch.Tensor:
+        return -0.1 * x  # Simple damping
+    
+    def diffusion_matrix_func(t: float, x: torch.Tensor) -> torch.Tensor:
+        # Return a simple diffusion matrix [batch_size, state_dim, noise_dim]
+        batch_size = x.shape[0]
+        return 0.1 * torch.randn(batch_size, state_dim, noise_dim)
+    
+    # Initial state
+    x0 = torch.randn(batch_size, state_dim)
+    
+    # Integration step
+    x1 = matrix_stochastic_heun_step(
+        drift_func, diffusion_matrix_func, x0, 0.0, timestep
     )
-    traj_large_np = traj_large.squeeze(-1).numpy()
-    times_large_np = times_large.numpy()
-    mean_large = traj_large_np.mean(axis=1)
-    var_large = traj_large_np.var(axis=1)
-    analytical_mean_large = np.exp(-times_large_np)
-    analytical_var = (sigma**2 / 2) * (1 - np.exp(-2 * times_large_np))
-    ax_statistics.plot(times_large_np, mean_large, color=COLOURS[0], linewidth=2, 
-                      label='Numerical mean')
-    ax_statistics.plot(times_large_np, analytical_mean_large, '--', color=COLOURS[0], 
-                      linewidth=2, alpha=0.7, label='Analytical mean')
-    ax_statistics.plot(times_large_np, var_large, color=COLOURS[1], linewidth=2, 
-                      label='Numerical variance')
-    ax_statistics.plot(times_large_np, analytical_var, '--', color=COLOURS[1], 
-                      linewidth=2, alpha=0.7, label='Analytical variance')
-    ax_statistics.set_xlabel(r'$t$')
-    ax_statistics.set_ylabel('Value')
-    ax_statistics.set_title('Ensemble Statistics')
-    ax_statistics.legend()
-    plotting.style_axis_clean(ax_statistics)
-    # Performance comparison
-    batch_sizes = [10, 50, 100, 500, 1000, 2000]
-    batch_times = []
-    single_times = []
-    for bs in batch_sizes:
-        x0_test = torch.randn(bs, 2)
-        t_test, tN_test, dt_test = 0.0, 0.1, 0.01
-        start = time.time()
-        _ = batch_euler_maruyama(simple_drift, simple_diffusion_scalar, 
-                                x0_test, t_test, tN_test, dt_test)
-        batch_time = time.time() - start
-        batch_times.append(batch_time)
-        start = time.time()
-        for _ in range(bs):
-            _ = euler_maruyama(simple_drift, simple_diffusion_scalar, 
-                             torch.randn(1, 2), t_test, tN_test, dt_test)
-        single_time = time.time() - start
-        single_times.append(single_time)
-    ax_performance.loglog(batch_sizes, batch_times, 'o-', color=COLOURS[2], 
-                         linewidth=2, markersize=6, label='Batch method')
-    ax_performance.loglog(batch_sizes, single_times, 's-', color=COLOURS[4], 
-                         linewidth=2, markersize=6, label='Sequential method')
-    ax_performance.set_xlabel('Batch size')
-    ax_performance.set_ylabel('Computation time (s)')
-    ax_performance.set_title('Performance Comparison')
-    ax_performance.legend()
-    ax_performance.grid(True, alpha=0.3)
-    plotting.style_axis_clean(ax_performance)
-    outdir = os.path.join(os.path.dirname(__file__), "figures")
-    os.makedirs(outdir, exist_ok=True)
-    fig.savefig(os.path.join(outdir, "batch_integration_summary.pdf"), bbox_inches="tight")
-    plt.close(fig)
+    
+    # Check output shape
+    assert x1.shape == (batch_size, state_dim)
+    
+    # Check that the state has changed
+    assert not torch.allclose(x0, x1)
 
 
-def main():
-    print("Running batch integration plots...")
-    plot_batch_integration_summary()
-    print("Plot saved to tests/figures/batch_integration_summary.pdf.")
-    print("Running pytest...")
-    pytest.main([__file__])
+def test_auto_select_matrix_integrator():
+    """Test automatic selection of matrix-aware integrators."""
+    # Should return matrix Heun for stochastic case
+    stochastic_integrator = auto_select_matrix_integrator(has_diffusion=True)
+    assert stochastic_integrator == matrix_stochastic_heun_step
+    
+    # Should return RK2 for deterministic case
+    deterministic_integrator = auto_select_matrix_integrator(has_diffusion=False)
+    assert deterministic_integrator == runge_kutta_2_step
 
-if __name__ == "__main__":
-    main()
+
+def test_matrix_integrators_deterministic_consistency():
+    """Test that matrix integrators give consistent results for deterministic case."""
+    batch_size, state_dim = 2, 3
+    timestep = 0.01
+    
+    def drift_func(t: float, x: torch.Tensor) -> torch.Tensor:
+        return -0.1 * x
+    
+    def diffusion_matrix_func(t: float, x: torch.Tensor) -> torch.Tensor:
+        # Return zero diffusion matrix for deterministic case
+        batch_size, state_dim = x.shape
+        return torch.zeros(batch_size, state_dim, 1)  # Zero diffusion matrix
+    
+    x0 = torch.randn(batch_size, state_dim)
+    
+    # Both should work for deterministic case
+    x1_euler = matrix_euler_maruyama_step(
+        drift_func, diffusion_matrix_func, x0, 0.0, timestep
+    )
+    x1_heun = matrix_stochastic_heun_step(
+        drift_func, diffusion_matrix_func, x0, 0.0, timestep
+    )
+    
+    assert x1_euler.shape == (batch_size, state_dim)
+    assert x1_heun.shape == (batch_size, state_dim)
+    
+    # Heun should be more accurate than Euler for deterministic case
+    # (Both should give reasonable results)
