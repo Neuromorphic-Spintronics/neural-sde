@@ -277,10 +277,8 @@ def integrate_trajectory_with_step_method(
     """
     device = initial_state.device
 
-    # Ensure at least a batch dimension
-    if initial_state.ndim == 0:
-        initial_state = initial_state.unsqueeze(0)
-    if initial_state.ndim == 1:
+    # Ensure at least a batch dimension (unified handling)
+    if initial_state.ndim <= 1:
         initial_state = initial_state.unsqueeze(0)
 
     num_steps = int((final_time - initial_time) / timestep)
