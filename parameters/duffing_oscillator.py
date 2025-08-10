@@ -132,7 +132,7 @@ class PhysicalDuffingParameters:
     boltzmann_constant: float = 1.380649e-23 # J/K
     
     # Coloured noise parameters
-    coloured_noise_intensity: float = 0.04 # m^2/s^3 
+    coloured_noise_intensity: float = 0.04 # s^3 / (m^2 * kg^2) 
     coloured_noise_correlation_time: float = 0.5 # s
     
     # Initial conditions
@@ -179,18 +179,19 @@ class PhysicalDuffingParameters:
         return math.sqrt(-linear_stiffness / nonlinear_stiffness)
 
     @staticmethod
-    def compute_characteristic_time(linear_stiffness: float) -> float:
+    def compute_characteristic_time(linear_stiffness: float, mass: float) -> float:
         """
-        Compute characteristic time: tau = 1/sqrt(|alpha|)
+        Compute characteristic time: tau = sqrt(m / |alpha|)
         
         Args:
             linear_stiffness: Linear stiffness coefficient (N/m)
+            mass: Mass of the oscillator (kg)
             
         Returns:
             Characteristic time scale (s)
         """
-        if linear_stiffness != 0:
-            return 1.0 / math.sqrt(abs(linear_stiffness))
+        if linear_stiffness != 0 and mass > 0:
+            return math.sqrt(mass / abs(linear_stiffness))
         else:
             return 1.0  # fallback
 
@@ -209,7 +210,7 @@ class PhysicalDuffingParameters:
         lambda_ = (self.characteristic_length if self.characteristic_length is not None 
                   else self.compute_characteristic_length(alpha, beta))
         tau = (self.characteristic_time if self.characteristic_time is not None 
-               else self.compute_characteristic_time(alpha))
+               else self.compute_characteristic_time(alpha, m))
         
         # Store computed characteristic scales back in the instance for reference
         # Note: Since dataclass is frozen, we use object.__setattr__
