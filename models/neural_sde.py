@@ -20,17 +20,43 @@ from parameters.hyperparameters import NetworkArchitecture, Hyperparameters
 from .modules import FeedForwardNetwork
 from .protocols import NeuralSDEProtocol
 from .integrators import auto_select_integrator, auto_select_matrix_integrator
+from config import DEVICE
 
-# Device selection
-def get_device() -> torch.device:
-    """Select the best available device: MPS (Apple Silicon), CUDA (NVIDIA), or CPU."""
-    if torch.backends.mps.is_available():
-        return torch.device("mps")
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    return torch.device("cpu")
+def _prepare_network_input(
+    state: Tensor,
+    time: Tensor,
+    external_inputs: Optional[Tensor],
+    expected_input_size: int,
+) -> Tensor:
+    """
+    Concatenate state, time (as column), and external inputs, padding zeros if needed.
+    Ensures time has shape [batch, 1] and calculates the missing external input size
+    from the expected input size.
+    """
+    # Ensure time has column shape
+    if time.dim() == 1:
+        time = time.unsqueeze(-1)
 
-DEVICE = get_device()
+    batch_size = state.shape[0]
+    device = state.device
+    state_size = state.shape[1]
+    time_size = time.shape[1]
+
+    # Determine how many external input features are expected
+    external_input_size = max(0, expected_input_size - state_size - time_size)
+
+    inputs: list[Tensor] = [state, time]
+    if external_inputs is not None:
+        inputs.append(external_inputs)
+    elif external_input_size > 0:
+        inputs.append(torch.zeros(batch_size, external_input_size, device=device))
+
+    return torch.cat(inputs, dim=-1)
+
+
+def _batch_time_tensor(batch_size: int, time_value: float, device: torch.device) -> Tensor:
+    """Create a length-`batch_size` time tensor filled with `time_value` on `device`."""
+    return torch.full((batch_size,), time_value, device=device)
 
 class DriftNet(FeedForwardNetwork):
     """
@@ -83,32 +109,12 @@ class DriftNet(FeedForwardNetwork):
         Returns:
             Drift vector of shape [batch_size, state_dim]
         """
-        # Ensure time has the correct shape
-        if time.dim() == 1:
-            time = time.unsqueeze(-1)  # Convert [batch_size] to [batch_size, 1]
-
-        # Prepare input tensor by concatenating state, time, and external inputs
-        input_components = [state, time]
-
-        if external_inputs is not None:
-            input_components.append(external_inputs)
-        else:
-            # Create zero external inputs if none provided to match expected input size
-            batch_size = state.shape[0]
-            device = state.device
-            # Calculate expected external input dimension
-            expected_input_size = self.architecture.input_size
-            state_time_size = state.shape[1] + time.shape[1]
-            external_input_size = expected_input_size - state_time_size
-
-            if external_input_size > 0:
-                zero_external_inputs = torch.zeros(
-                    batch_size, external_input_size, device=device
-                )
-                input_components.append(zero_external_inputs)
-
-        # Concatenate all components along the feature dimension
-        network_input = torch.cat(input_components, dim=-1)
+        network_input = _prepare_network_input(
+            state=state,
+            time=time,
+            external_inputs=external_inputs,
+            expected_input_size=self.architecture.input_size,
+        )
 
         # Pass through the neural network
         return self.forward(network_input)
@@ -183,33 +189,12 @@ class DiffusionNet(FeedForwardNetwork):
         Returns:
             Diffusion matrix of shape [batch_size, state_dim, noise_dim]
         """
-        # Ensure time has the correct shape
-        if time.dim() == 1:
-            time = time.unsqueeze(-1)  # Convert [batch_size] to [batch_size, 1]
-
-        # Calculate the correct external input dimension
-        time_size = time.shape[1]
-        state_size = state.shape[1]
-        expected_input_size = self.architecture.input_size
-        # The input to the network is constructed as [state, time, external_inputs],
-        # so the total input size is: state_size + time_size + external_input_size.
-        # To determine the size for external_inputs, subtract the space used by state and time.
-        external_input_size = expected_input_size - state_size - time_size
-
-        # Prepare input tensor by concatenating state, time, and external inputs
-        input_components = [state, time]
-        if external_inputs is not None:
-            input_components.append(external_inputs)
-        else:
-            batch_size = state.shape[0]
-            device = state.device
-            if external_input_size > 0:
-                zero_external_inputs = torch.zeros(
-                    batch_size, external_input_size, device=device
-                )
-                input_components.append(zero_external_inputs)
-        # Concatenate all components along the feature dimension
-        network_input = torch.cat(input_components, dim=-1)
+        network_input = _prepare_network_input(
+            state=state,
+            time=time,
+            external_inputs=external_inputs,
+            expected_input_size=self.architecture.input_size,
+        )
 
         # Pass through the neural network
         diffusion_output = self.forward(network_input)
@@ -374,30 +359,12 @@ class NeuralSDE(nn.Module, NeuralSDEProtocol):
             device=device
         )
         
-        # For stochastic systems (with diffusion), discriminator is required for adversarial training
-        # For deterministic systems (no diffusion), discriminator is optional
-        if self.diffusion_net is not None:
-            # Stochastic case: discriminator is required
-            if not hasattr(hyperparameters, 'discriminator_network') or hyperparameters.discriminator_network is None:
-                raise ValueError(
-                    "Discriminator network is required for stochastic Neural SDEs "
-                    "(when diffusion network is present) for adversarial training"
-                )
-            self.discriminator_net = DiscriminatorNet(
-                architecture=hyperparameters.discriminator_network,
-                trajectory_length=self._infer_trajectory_length(hyperparameters),
-                device=device
-            )
-        else:
-            # Deterministic case: discriminator is optional
-            if hasattr(hyperparameters, 'discriminator_network') and hyperparameters.discriminator_network is not None:
-                self.discriminator_net = DiscriminatorNet(
-                    architecture=hyperparameters.discriminator_network,
-                    trajectory_length=self._infer_trajectory_length(hyperparameters),
-                    device=device
-                )
-            else:
-                self.discriminator_net = None
+        # Discriminator network initialisation (validation already enforces presence/output size)
+        self.discriminator_net = DiscriminatorNet(
+            architecture=hyperparameters.discriminator_network,
+            trajectory_length=self._infer_trajectory_length(hyperparameters),
+            device=device
+        )
 
     def _validate_hyperparameters(self, hyperparameters: Hyperparameters) -> None:
         """
@@ -409,23 +376,26 @@ class NeuralSDE(nn.Module, NeuralSDEProtocol):
         Raises:
             ValueError: If hyperparameters are invalid
         """
+        def _require_attr(obj: object, name: str) -> None:
+            if not hasattr(obj, name):
+                raise ValueError(f"Hyperparameters missing required attribute: {name}")
+            if getattr(obj, name) is None:
+                raise ValueError(f"Hyperparameters attribute {name} cannot be None")
+
+        def _require_arch_fields(arch: object, label: str) -> None:
+            for field in ("input_size", "output_size"):
+                if not hasattr(arch, field):
+                    raise ValueError(f"{label} architecture missing {field}")
+
         # Check required attributes exist
-        required_attrs = ['drift_network', 'diffusion_network', 'state_dimension', 'input_dimension', 'timestep']
-        for attr in required_attrs:
-            if not hasattr(hyperparameters, attr):
-                raise ValueError(f"Hyperparameters missing required attribute: {attr}")
-            if getattr(hyperparameters, attr) is None:
-                raise ValueError(f"Hyperparameters attribute {attr} cannot be None")
-        
+        for attr in [
+            'drift_network', 'diffusion_network', 'state_dimension', 'input_dimension', 'timestep'
+        ]:
+            _require_attr(hyperparameters, attr)
+
         # Validate network architectures
-        if not hasattr(hyperparameters.drift_network, 'input_size'):
-            raise ValueError("Drift network architecture missing input_size")
-        if not hasattr(hyperparameters.drift_network, 'output_size'):
-            raise ValueError("Drift network architecture missing output_size")
-        if not hasattr(hyperparameters.diffusion_network, 'input_size'):
-            raise ValueError("Diffusion network architecture missing input_size")
-        if not hasattr(hyperparameters.diffusion_network, 'output_size'):
-            raise ValueError("Diffusion network architecture missing output_size")
+        _require_arch_fields(hyperparameters.drift_network, "Drift network")
+        _require_arch_fields(hyperparameters.diffusion_network, "Diffusion network")
         
         # Validate timestep is positive
         if hyperparameters.timestep <= 0:
@@ -563,9 +533,29 @@ class NeuralSDE(nn.Module, NeuralSDEProtocol):
                 f"expected state dimension {self.state_dimension}"
             )
 
-        # Automatically select integration method based on whether diffusion is present
-        step_integrator: Callable[..., Tensor] = auto_select_integrator(has_diffusion=self.diffusion_net is not None)
-        matrix_integrator: Callable[..., Tensor] = auto_select_matrix_integrator(has_diffusion=self.diffusion_net is not None)
+        # Choose a single step function to keep loop simple
+        has_diffusion = self.diffusion_net is not None
+        step_fn: Callable[[float, Tensor, Tensor], Tensor]
+
+        if has_diffusion:
+            matrix_integrator: Callable[..., Tensor] = auto_select_matrix_integrator(has_diffusion=True)
+
+            def step_fn(current_time: float, current_state: Tensor, external_input_at_step: Tensor) -> Tensor:
+                def drift_func(t: float, x: Tensor) -> Tensor:
+                    return self._compute_drift_at_step(x, t, external_input_at_step)
+
+                def diffusion_matrix_func(t: float, x: Tensor) -> Tensor:
+                    return self._compute_diffusion_at_step(x, t, external_input_at_step)  # type: ignore[return-value]
+
+                return matrix_integrator(drift_func, diffusion_matrix_func, current_state, current_time, self.timestep)
+        else:
+            step_integrator: Callable[..., Tensor] = auto_select_integrator(has_diffusion=False)
+
+            def step_fn(current_time: float, current_state: Tensor, external_input_at_step: Tensor) -> Tensor:
+                def drift_func(t: float, x: Tensor) -> Tensor:
+                    return self._compute_drift_at_step(x, t, external_input_at_step)
+
+                return step_integrator(drift_func, current_state, current_time, self.timestep)
 
         # Initialise trajectory storage
         trajectory = torch.zeros(batch_size, state_dim, num_timesteps, device=self.device)
@@ -580,25 +570,8 @@ class NeuralSDE(nn.Module, NeuralSDEProtocol):
             # Get external input at this step
             external_input_at_step = external_inputs[:, :, step]
             
-            # Create drift function for this step
-            def drift_func(time: float, state: Tensor) -> Tensor:
-                return self._compute_drift_at_step(state, time, external_input_at_step)
-            
-            # Create diffusion matrix function for this step
-            def diffusion_matrix_func(time: float, state: Tensor) -> Tensor:
-                return self._compute_diffusion_at_step(state, time, external_input_at_step)
-            
-            # Integrate one step forward using matrix-aware integration
-            if self.diffusion_net is not None:
-                # Stochastic case - use matrix-aware integrator
-                current_state = matrix_integrator(
-                    drift_func, diffusion_matrix_func, current_state, current_time, self.timestep
-                )
-            else:
-                # Deterministic case - use standard integrator
-                current_state = step_integrator(
-                    drift_func, current_state, current_time, self.timestep
-                )
+            # Single-path step
+            current_state = step_fn(current_time, current_state, external_input_at_step)
             
             # Update time
             current_time += self.timestep
@@ -624,7 +597,7 @@ class NeuralSDE(nn.Module, NeuralSDEProtocol):
         """
         # Convert time to tensor with correct batch size
         batch_size = state.shape[0]
-        time_tensor = torch.full((batch_size,), time, device=state.device)
+        time_tensor = _batch_time_tensor(batch_size, time, state.device)
         
         return self.drift_net.compute_drift(state, time_tensor, external_input)
 
@@ -650,44 +623,11 @@ class NeuralSDE(nn.Module, NeuralSDEProtocol):
             
         # Convert time to tensor with correct batch size
         batch_size = state.shape[0]
-        time_tensor = torch.full((batch_size,), time, device=state.device)
+        time_tensor = _batch_time_tensor(batch_size, time, state.device)
         
         return self.diffusion_net.compute_diffusion(state, time_tensor, external_input)
 
-    def _generate_wiener_increments(
-        self, 
-        batch_size: int, 
-        noise_dim: int, 
-        device: torch.device, 
-        timestep: float
-    ) -> Tensor:
-        """
-        Generate Wiener process increments for the noise dimension.
-        
-        Args:
-            batch_size: Number of trajectories
-            noise_dim: Dimension of the noise process
-            device: Device for tensor creation
-            timestep: Integration timestep
-            
-        Returns:
-            Wiener increments of shape [batch_size, noise_dim]
-        """
-        # Generate standard normal random variables and scale by sqrt(timestep)
-        standard_normal = torch.randn(batch_size, noise_dim, device=device)
-        return standard_normal * torch.sqrt(torch.tensor(timestep, device=device))
-
-    def get_drift_network(self) -> DriftNet:
-        """Return the drift network component."""
-        return self.drift_net
-
-    def get_diffusion_network(self) -> Optional[DiffusionNet]:
-        """Return the diffusion network component (may be None for deterministic phase)."""
-        return self.diffusion_net
-
-    def get_discriminator_network(self) -> Optional[DiscriminatorNet]:
-        """Return the discriminator network component (may be None if not using adversarial training)."""
-        return self.discriminator_net
+    
 
     def count_total_parameters(self) -> dict[str, int]:
         """
