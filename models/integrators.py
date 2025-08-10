@@ -391,6 +391,70 @@ def stochastic_heun_method(
         timestep=dt,
     )
 
+
+def make_batched_single_step_from_scalar(
+    step_integrator: Callable[[Callable[[float, torch.Tensor], torch.Tensor], torch.Tensor, float, float], torch.Tensor]
+) -> Callable[[Callable[[torch.Tensor, torch.Tensor], torch.Tensor], torch.Tensor, torch.Tensor, float], torch.Tensor]:
+    """
+    Create a batched wrapper around a scalar-time single-step integrator.
+
+    This adapts an existing scalar-time step function (e.g. `runge_kutta_2_step`)
+    so it can accept per-sample times by grouping identical time values and
+    invoking the scalar integrator once per unique time.
+
+    Args:
+        step_integrator: Function with signature (drift_fn, state, time, dt)
+
+    Returns:
+        A batched step function with signature (drift_fn_vec, states, times, dt)
+        where:
+        - drift_fn_vec(time_tensor, state_batch) -> [batch, state_dim]
+        - states: [batch, state_dim]
+        - times: [batch, 1] or [batch]
+    """
+    def batched_step(
+        drift_function_vectorized: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
+        current_states: torch.Tensor,
+        current_times: torch.Tensor,
+        timestep: float,
+    ) -> torch.Tensor:
+        # Normalise time tensor shape to [batch]
+        if current_times.dim() > 1:
+            times_1d = current_times.squeeze(-1)
+        else:
+            times_1d = current_times
+
+        # Prepare output
+        next_states = torch.empty_like(current_states)
+
+        # Group by unique time values to avoid per-sample loops
+        unique_times, inverse_indices = torch.unique(times_1d, sorted=True, return_inverse=True)
+
+        for unique_idx, time_value in enumerate(unique_times):
+            mask = inverse_indices == unique_idx
+            if not torch.any(mask):
+                continue
+
+            states_subset = current_states[mask]
+
+            # Adapter: lift scalar-time drift to vectorised-time drift expected by step_integrator
+            def drift_scalar(time_float: float, states_batch: torch.Tensor) -> torch.Tensor:
+                time_tensor = torch.full(
+                    (states_batch.shape[0], 1), float(time_float), device=states_batch.device, dtype=states_batch.dtype
+                )
+                return drift_function_vectorized(time_tensor, states_batch)
+
+            next_states[mask] = step_integrator(
+                drift_scalar,
+                states_subset,
+                float(time_value.item()),
+                timestep,
+            )
+
+        return next_states
+
+    return batched_step
+
 def rk2(
     f: Callable[[float, torch.Tensor], torch.Tensor],
     y0: torch.Tensor,
@@ -476,7 +540,7 @@ def matrix_euler_maruyama_step(
     Integrates neural SDEs of the form:
         dX(t) = mu(X(t), t) dt + sigma(X(t), t) dW(t)
     
-    where sigma(X(t), t) is a [state_dim × noise_dim] matrix and dW(t) is 
+    where sigma(X(t), t) is a [state_dim, noise_dim] matrix and dW(t) is 
     noise_dim-dimensional Brownian motion.
     
     Discretisation:
