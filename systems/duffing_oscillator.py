@@ -1,20 +1,20 @@
 """
 Stochastic Duffing Oscillator
 
-This module implements the stochastic Duffing oscillator as a system of first-order 
+This module implements the stochastic Duffing oscillator as a system of first-order
 stochastic differential equations (SDEs) with both white and coloured noise.
 
 The dimensionless SDE system is:
     dq(t) = v(t) dt
-    dv(t) = (-alpha q(t) - beta q(t)^3 - mu v(t) + gamma cos(Omega t) + xi(t)) dt + sqrt(2 mu Theta) \odot dW(t)
-    dxi(t) = -1/t_correl_tilde * xi(t) dt + sqrt(2 D_tilde / t_correl_tilde) \odot dW(t)
+    dv(t) = (-alpha q(t) - beta q(t)^3 - mu v(t) + gamma cos(Omega t) + xi(t)) dt + sqrt(2 mu Theta) ⊙ dW(t)
+    dxi(t) = -1/t_correl_tilde * xi(t) dt + sqrt(2 D_tilde / t_correl_tilde) ⊙ dW(t)
 
 where the following are dimensionless parameters:
     q(t): position
     v(t): velocity
     xi(t): auxiliary variable representing Ornstein-Uhlenbeck coloured noise
     alpha, beta: linear and nonlinear stiffness parameters
-    mu: damping coefficient  
+    mu: damping coefficient
     gamma: forcing amplitude
     Omega: forcing frequency
     Theta: temperature (white noise)
@@ -37,7 +37,7 @@ class DuffingOscillator:
 
     Implements the dimensionless SDE system with state vector [q, v, xi] where:
     - q(t) is dimensionless position
-    - v(t) is dimensionless velocity  
+    - v(t) is dimensionless velocity
     - xi(t) is the Ornstein-Uhlenbeck process for coloured noise
     """
 
@@ -67,7 +67,7 @@ class DuffingOscillator:
     def get_state_dimension(self) -> int:
         """
         Get the dimension of the state vector.
-        
+
         Returns:
             State dimension (always 3 for [q, v, xi])
         """
@@ -76,7 +76,7 @@ class DuffingOscillator:
     def get_initial_state(self) -> torch.Tensor:
         """
         Get the initial state vector [q_0, v_0, xi_0].
-        
+
         Returns:
             Initial state tensor of shape [3]
         """
@@ -118,7 +118,7 @@ class DuffingOscillator:
             Drift term vector [v, acceleration, -xi/t_correl_tilde]
         """
         state = state.to(DEVICE)
-        
+
         # Handle both batched and single trajectory cases
         if state.ndim == 1:
             # Single trajectory: state = [q, v, xi]
@@ -156,18 +156,20 @@ class DuffingOscillator:
             [0, sqrt(2 mu Theta), sqrt(2 D_tilde / t_correl_tilde)]
 
         Args:
-            t: Current dimensionless time  
+            t: Current dimensionless time
             state: Current state [q, v, xi]
 
         Returns:
             Diffusion term vector
         """
         state = state.to(DEVICE)
-        
+
         # Diffusion coefficients
         position_noise = 0.0  # No noise on position equation
         velocity_noise = self.params.white_noise_strength  # sqrt(2 mu Theta)
-        coloured_noise_driving = self.params.coloured_noise_strength  # sqrt(2 D_tilde / t_correl_tilde)
+        coloured_noise_driving = (
+            self.params.coloured_noise_strength
+        )  # sqrt(2 D_tilde / t_correl_tilde)
 
         # Handle both batched and single trajectory cases
         if state.ndim == 1:
@@ -301,7 +303,7 @@ class DuffingOscillator:
     def effective_potential(self, q: torch.Tensor, xi: torch.Tensor) -> torch.Tensor:
         """
         Compute effective potential including coloured noise contribution.
-        
+
         This is useful for visualising how coloured noise modifies the potential landscape.
 
         Args:

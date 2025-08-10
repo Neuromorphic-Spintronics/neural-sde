@@ -22,6 +22,7 @@ DUFFING_OSCILLATOR_PARAMETERS: Final[DuffingOscillatorParameters] = (
     PhysicalDuffingParameters().to_dimensionless()
 )
 
+
 def get_parameters(
     system: str,
 ) -> Union[Hyperparameters, DuffingOscillatorParameters]:

@@ -96,7 +96,6 @@ class DynamicalSystemProtocol(Protocol):
         """
         raise NotImplementedError()  # type: ignore
 
-
     def diffusion_function(self, time: float, state: Tensor) -> Tensor:
         """
         Compute the diffusion term of the SDE.
@@ -111,8 +110,7 @@ class DynamicalSystemProtocol(Protocol):
         raise NotImplementedError()  # type: ignore
 
     def integrate_sde(
-        self,
-        initial_state: Optional[Tensor] = None
+        self, initial_state: Optional[Tensor] = None
     ) -> tuple[Tensor, Tensor]:
         """
         Generate a complete trajectory of the system.
@@ -158,10 +156,7 @@ class NeuralSDEProtocol(Protocol):
     """
 
     def forward(
-        self,
-        external_inputs: Tensor,
-        initial_state: Tensor,
-        initial_time: float = 0.0
+        self, external_inputs: Tensor, initial_state: Tensor, initial_time: float = 0.0
     ) -> Tensor:
         """
         Simulate neural SDE trajectory given external inputs.
