@@ -61,3 +61,6 @@ exclude = ["tests*", "docs*"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = ["-v", "--tb=short"]
+
+[tool.coverage.run]
+source = ["neural_sde"]
