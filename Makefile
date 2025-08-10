@@ -7,6 +7,7 @@ docs:
 		./systems \
 		./parameters/duffing_oscillator.py \
 		./parameters/hyperparameters.py \
+		./examples \
 		./training \
 		./utils \
 		./config.py \

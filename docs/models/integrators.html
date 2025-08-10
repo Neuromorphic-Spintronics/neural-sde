@@ -93,6 +93,9 @@
                     <a class="function" href="#stochastic_heun_method">stochastic_heun_method</a>
             </li>
             <li>
+                    <a class="function" href="#make_batched_single_step_from_scalar">make_batched_single_step_from_scalar</a>
+            </li>
+            <li>
                     <a class="function" href="#rk2">rk2</a>
             </li>
             <li>
@@ -563,6 +566,44 @@ If None, treats as deterministic ODE.</li>
 
 
                 </section>
+                <section id="make_batched_single_step_from_scalar">
+                    <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">make_batched_single_step_from_scalar</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">step_integrator</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">Callable</span><span class="p">[[</span><span class="nb">float</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span></span><span class="return-annotation">) -> <span class="n">Callable</span><span class="p">[[</span><span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="nb">float</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span>:</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#make_batched_single_step_from_scalar"></a>
+    
+            <div class="docstring"><p>Create a batched wrapper around a scalar-time single-step integrator.</p>
+
+<p>This adapts an existing scalar-time step function (e.g. <code><a href="#runge_kutta_2_step">runge_kutta_2_step</a></code>)
+so it can accept per-sample times by grouping identical time values and
+invoking the scalar integrator once per unique time.</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>step_integrator:</strong>  Function with signature (drift_fn, state, time, dt)</li>
+</ul>
+
+<h6 id="returns">Returns:</h6>
+
+<blockquote>
+  <p>A batched step function with signature (drift_fn_vec, states, times, dt)
+  where:</p>
+  
+  <ul>
+  <li>drift_fn_vec(time_tensor, state_batch) -> [batch, state_dim]</li>
+  <li>states: [batch, state_dim]</li>
+  <li>times: [batch, 1] or [batch]</li>
+  </ul>
+</blockquote>
+</div>
+
+
+                </section>
                 <section id="rk2">
                     <div class="attr function">
             
@@ -663,7 +704,7 @@ for use in stochastic integration methods.</p>
   <p>dX(t) = mu(X(t), t) dt + sigma(X(t), t) dW(t)</p>
 </blockquote>
 
-<p>where sigma(X(t), t) is a [state_dim × noise_dim] matrix and dW(t) is 
+<p>where sigma(X(t), t) is a [state_dim, noise_dim] matrix and dW(t) is 
 noise_dim-dimensional Brownian motion.</p>
 
 <h6 id="discretisation">Discretisation:</h6>
