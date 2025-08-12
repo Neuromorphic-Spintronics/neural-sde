@@ -17,25 +17,38 @@ from utils import plotting
 
 
 class TestDiffusionNet:
-    @pytest.mark.parametrize("arch,state_dim,noise_dim,activation", [
-        (NetworkArchitecture(6, [32, 16], 4), 2, 2, torch.nn.Tanh),
-        (NetworkArchitecture(12, [64], 6), 3, 2, torch.nn.ReLU),
-        (NetworkArchitecture(15, [16, 8], 6), 2, 3, torch.nn.Sigmoid),
-    ])
+    @pytest.mark.parametrize(
+        "arch,state_dim,noise_dim,activation",
+        [
+            (NetworkArchitecture(6, [32, 16], 4), 2, 2, torch.nn.Tanh),
+            (NetworkArchitecture(12, [64], 6), 3, 2, torch.nn.ReLU),
+            (NetworkArchitecture(15, [16, 8], 6), 2, 3, torch.nn.Sigmoid),
+        ],
+    )
     def test_initialisation_and_device(self, arch, state_dim, noise_dim, activation):
-        net = DiffusionNet(arch, state_dimension=state_dim, noise_dimension=noise_dim, activation=activation)
+        net = DiffusionNet(
+            arch,
+            state_dimension=state_dim,
+            noise_dimension=noise_dim,
+            activation=activation,
+        )
         assert net.architecture == arch
         assert isinstance(net, DiffusionNet)
         assert next(net.parameters()).device.type == DEVICE.type
         assert net.state_dimension == state_dim
         assert net.noise_dimension == noise_dim
 
-    @pytest.mark.parametrize("batch_size,state_dim,noise_dim,input_dim,hidden_sizes", [
-        (1, 2, 2, 2, [8]),
-        (16, 3, 2, 4, [16, 8]),
-        (32, 4, 3, 5, [32]),
-    ])
-    def test_forward_pass_various_batch_sizes(self, batch_size, state_dim, noise_dim, input_dim, hidden_sizes):
+    @pytest.mark.parametrize(
+        "batch_size,state_dim,noise_dim,input_dim,hidden_sizes",
+        [
+            (1, 2, 2, 2, [8]),
+            (16, 3, 2, 4, [16, 8]),
+            (32, 4, 3, 5, [32]),
+        ],
+    )
+    def test_forward_pass_various_batch_sizes(
+        self, batch_size, state_dim, noise_dim, input_dim, hidden_sizes
+    ):
         # input_size = state_dim + time (1) + input_dim
         input_size = state_dim + 1 + input_dim
         output_size = state_dim * noise_dim
@@ -72,7 +85,9 @@ class TestDiffusionNet:
         batch_size = 4
         state = torch.randn(batch_size, state_dim, requires_grad=True, device=DEVICE)
         time = torch.randn(batch_size, 1, requires_grad=True, device=DEVICE)
-        external_inputs = torch.randn(batch_size, input_dim, requires_grad=True, device=DEVICE)
+        external_inputs = torch.randn(
+            batch_size, input_dim, requires_grad=True, device=DEVICE
+        )
         output = net.compute_diffusion(state, time, external_inputs)
         loss = output.sum()
         loss.backward()
@@ -123,15 +138,18 @@ class TestDiffusionNet:
         ax.set_ylabel("")
         ax.set_title("")
         # Make axes square and set only three ticks
-        ax.set_aspect('equal', adjustable='box')
+        ax.set_aspect("equal", adjustable="box")
         ax.set_xticks([-2, 0, 2])
         ax.set_yticks([-2, 0, 2])
         plotting.style_axis_clean(ax)
         # Save to figures directory as PDF
         outdir = os.path.join(os.path.dirname(__file__), "figures")
         os.makedirs(outdir, exist_ok=True)
-        fig.savefig(os.path.join(outdir, "diffusion_net_demonstration.pdf"), bbox_inches="tight")
+        fig.savefig(
+            os.path.join(outdir, "diffusion_net_demonstration.pdf"), bbox_inches="tight"
+        )
         plt.close(fig)
 
+
 if __name__ == "__main__":
-    pytest.main([__file__, "-v", "--tb=short"]) 
+    pytest.main([__file__, "-v", "--tb=short"])

@@ -25,7 +25,7 @@ from models.neural_sde import DriftNet
 import torch
 from torch import Tensor
 
-SYSTEM_NAME = "duffing"  # for file names
+SYSTEM_NAME = "duffing"
 
 
 def build_duffing_neural_ode_drift(
@@ -78,11 +78,11 @@ def simulate_duffing_neural_ode_trajectory(
 
 
 def create_duffing_neural_ode_demonstration(
-    **kwargs
+    **kwargs,
 ) -> Tuple[DriftNet, List[float], Dict[str, Any]]:
     """Create Duffing neural ODE demonstration using the template."""
-    kwargs.setdefault('save_directory', 'examples/figures')
-    kwargs.setdefault('system_name', SYSTEM_NAME)
+    kwargs.setdefault("save_directory", "examples/figures")
+    kwargs.setdefault("system_name", SYSTEM_NAME)
     return create_neural_ode_demonstration(**kwargs)
 
 
@@ -129,47 +129,51 @@ def fit_neural_ode_to_duffing_mean(
     )
 
 
-def load_trained_duffing_model(model_path: str | Path) -> Tuple[DriftNet, Dict[str, Any]]:
+def load_trained_duffing_model(
+    model_path: str | Path,
+) -> Tuple[DriftNet, Dict[str, Any]]:
     """Load a trained Duffing neural ODE model from disk."""
     from parameters.hyperparameters import NetworkArchitecture
     from config import DEVICE
-    
+
     model_path = Path(model_path)
-    
+
     if not model_path.exists():
         raise FileNotFoundError(f"Model file not found: {model_path}")
-    
+
     print(f"Loading trained model from {model_path}")
-    
+
     checkpoint = torch.load(model_path, map_location=DEVICE)
-    
-    arch_info = checkpoint['model_architecture']
+
+    arch_info = checkpoint["model_architecture"]
     architecture = NetworkArchitecture(
-        input_size=arch_info['input_size'],
-        hidden_sizes=arch_info['hidden_layer_sizes'], 
-        output_size=arch_info['output_size'],
+        input_size=arch_info["input_size"],
+        hidden_sizes=arch_info["hidden_layer_sizes"],
+        output_size=arch_info["output_size"],
     )
-    
+
     model = DriftNet(architecture=architecture, device=DEVICE)
-    model.load_state_dict(checkpoint['model_state_dict'])
+    model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
-    
+
     model_info = {
-        'architecture': arch_info,
-        'training_config': checkpoint['training_config'],
-        'training_losses': checkpoint['training_losses'],
-        'performance': {
-            'final_loss': checkpoint['training_config']['final_loss'],
-            'initial_loss': checkpoint['training_config']['initial_loss'],
-            'improvement_factor': checkpoint['training_config']['improvement_factor'],
-        }
+        "architecture": arch_info,
+        "training_config": checkpoint["training_config"],
+        "training_losses": checkpoint["training_losses"],
+        "performance": {
+            "final_loss": checkpoint["training_config"].get("final_loss"),
+            "initial_loss": checkpoint["training_config"].get("initial_loss"),
+            "improvement_factor": checkpoint["training_config"].get(
+                "improvement_factor"
+            ),
+        },
     }
-    
+
     print("Model loaded successfully.")
     print(f"   Architecture: {arch_info['hidden_layer_sizes']}")
     print(f"   Training: {checkpoint['training_config']['num_epochs']} epochs")
     print(f"   Final loss: {checkpoint['training_config']['final_loss']:.2e}")
-    
+
     return model, model_info
 
 
@@ -183,18 +187,18 @@ def simulate_with_loaded_model(
 ) -> Tuple[Tensor, Tensor]:
     """Simulate a trajectory using a loaded neural ODE model."""
     from config import DEVICE
-    
+
     if isinstance(initial_state, list):
         initial_state_tensor: Tensor = torch.tensor(
             initial_state, device=DEVICE, dtype=torch.float32
         )
     else:
         initial_state_tensor = cast(Tensor, initial_state)
-    
+
     print("Simulating trajectory from", initial_state_tensor.tolist())
     print(f"   Time span: 0 to {total_time} (dimensionless)")
     print(f"   Timestep: {timestep}")
-    
+
     time_grid, trajectory = simulate_duffing_neural_ode_trajectory(
         model,
         x0=initial_state_tensor,
@@ -204,9 +208,9 @@ def simulate_with_loaded_model(
         gamma=gamma,
         Omega=omega,
     )
-    
+
     print(f"Simulation complete: {len(time_grid)} time points")
-    
+
     return time_grid, trajectory
 
 
@@ -215,15 +219,15 @@ def print_model_summary(model_info: Dict[str, Any]) -> None:
     print("\n" + "=" * 50)
     print("DUFFING NEURAL ODE MODEL SUMMARY")
     print("=" * 50)
-    
-    arch = model_info['architecture']
-    config = model_info['training_config']
-    
+
+    arch = model_info["architecture"]
+    config = model_info["training_config"]
+
     print("\n🏗️  ARCHITECTURE:")
     print(f"   Input size:  {arch['input_size']} (position, velocity, time, forcing)")
     print(f"   Hidden layers: {arch['hidden_layer_sizes']}")
     print(f"   Output size: {arch['output_size']} (d_position/dt, d_velocity/dt)")
-    
+
     print("\nTRAINING DATA:")
     print(f"   Trajectories: {config['num_trajectories']}")
     print(f"   Time span:    {config['total_time']} dimensionless units")
@@ -241,6 +245,9 @@ Examples:
   # Train a new model (default)
   python examples/duffing_oscillator.py
   
+  # Train without noise
+  python examples/duffing_oscillator.py --no-noise
+
   # Load and test a trained model
   python examples/duffing_oscillator.py --load examples/models/duffing_neural_ode.pth
   
@@ -249,88 +256,91 @@ Examples:
   
   # Train with custom parameters
   python examples/duffing_oscillator.py --epochs 500 --learning-rate 1e-3 --trajectories 32
-        """
+        """,
     )
-    
+
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument(
-        "--load", 
-        type=str, 
+        "--load",
+        type=str,
         metavar="MODEL_PATH",
-        help="Load and evaluate a trained model from the specified path"
+        help="Load and evaluate a trained model from the specified path",
     )
     mode_group.add_argument(
-        "--train", 
-        action="store_true", 
-        default=True,
-        help="Train a new model (default mode)"
-    )
-    
-    parser.add_argument(
-        "--simulate", 
+        "--train",
         action="store_true",
-        help="Run simulation with loaded model (requires --load)"
+        default=True,
+        help="Train a new model (default mode)",
+    )
+
+    parser.add_argument(
+        "--simulate",
+        action="store_true",
+        help="Run simulation with loaded model (requires --load)",
     )
     parser.add_argument(
-        "--initial-state", 
-        nargs=2, 
-        type=float, 
+        "--initial-state",
+        nargs=2,
+        type=float,
         default=[0.1, 0.0],
         metavar=("POS", "VEL"),
-        help="Initial conditions [position, velocity] for simulation (default: 0.1 0.0)"
+        help="Initial conditions [position, velocity] for simulation (default: 0.1 0.0)",
     )
     parser.add_argument(
-        "--time", 
-        type=float, 
+        "--time",
+        type=float,
         default=5.0,
-        help="Simulation time for loaded model (default: 5.0)"
+        help="Simulation time for loaded model (default: 5.0)",
     )
-    
+
     training_group = parser.add_argument_group("Training Parameters")
     training_group.add_argument(
-        "--trajectories", 
-        type=int, 
-        default=128,
-        help="Number of training trajectories (default: 16)"
+        "--trajectories",
+        type=int,
+        default=256,
+        help="Number of training trajectories (default: 1024)",
     )
     training_group.add_argument(
-        "--epochs", 
-        type=int, 
-        default=100,
-        help="Number of training epochs (default: 100)"
+        "--epochs",
+        type=int,
+        default=300,
+        help="Number of training epochs (default: 300)",
     )
     training_group.add_argument(
-        "--learning-rate", 
-        type=float, 
-        default=2e-3,
-        help="Learning rate for training (default: 0.002)"
+        "--learning-rate",
+        type=float,
+        default=3.4e-4,
+        help="Learning rate for training (default: 0.001)",
     )
     training_group.add_argument(
-        "--architecture", 
-        nargs="+", 
-        type=int, 
-        default=[128, 128, 64],
-        help="Hidden layer sizes (default: 128 128 64)"
+        "--architecture",
+        nargs="+",
+        type=int,
+        default=[128, 128, 128],
+        help="Hidden layer sizes (default: 256 256 128)",
     )
-    
-    parser.add_argument(
-        "--show-plots", 
+    training_group.add_argument(
+        "--no-noise",
         action="store_true",
-        help="Display plots interactively"
+        help="Generate training data without stochastic noise.",
+    )
+
+    parser.add_argument(
+        "--show-plots", action="store_true", help="Display plots interactively"
     )
     parser.add_argument(
-        "--save-dir", 
-        type=str, 
+        "--save-dir",
+        type=str,
         default="examples/figures",
-        help="Directory to save figures (default: examples/figures)"
+        help="Directory to save figures (default: examples/figures)",
     )
-    
+
     return parser
 
 
 def run_training_mode(args: argparse.Namespace) -> None:
     """Run the training mode with specified parameters."""
-    
+
     print("TRAINING MODE")
     print(f"   Parameters: {args.trajectories} trajectories, {args.epochs} epochs")
     print(f"   Architecture: {args.architecture}")
@@ -341,7 +351,6 @@ def run_training_mode(args: argparse.Namespace) -> None:
     trajectories = args.trajectories
     training_batch_size = 16
 
-    
     create_duffing_neural_ode_demonstration(
         num_trajectories=trajectories,
         total_time=25.0,
@@ -353,9 +362,9 @@ def run_training_mode(args: argparse.Namespace) -> None:
         show_plots=args.show_plots,
         trajectory_batch_size=128,
         training_batch_size=training_batch_size,
-        
+        with_noise=not args.no_noise,
     )
-    
+
     print("\nTraining complete.")
 
 
@@ -363,28 +372,29 @@ def run_loading_mode(args: argparse.Namespace) -> None:
     """Run the model loading and evaluation mode."""
     print("LOADING MODE")
     print(f"   Model path: {args.load}")
-    
+
     model, info = load_trained_duffing_model(args.load)
-    
+
     print_model_summary(info)
-    
+
     if args.simulate:
         print("Running trajectory simulation...")
         time_grid, trajectory = simulate_with_loaded_model(
-            model,
-            initial_state=args.initial_state,
-            total_time=args.time,
-            timestep=0.02
+            model, initial_state=args.initial_state, total_time=args.time, timestep=0.02
         )
-        
+
         print(f"Trajectory shape: {trajectory.shape}")
         print(f"   Final position: {trajectory[-1, 0, 0].item():.3f}")
         print(f"   Final velocity: {trajectory[-1, 0, 1].item():.3f}")
-        
+
         if args.show_plots or args.save_dir:
             print("Creating trajectory visualisation...")
             stoch_for_plot = trajectory.squeeze(1).unsqueeze(0)
-            save_path = Path(args.save_dir) / "loaded_model_trajectory.png" if args.save_dir else None
+            save_path = (
+                Path(args.save_dir) / "loaded_model_trajectory.png"
+                if args.save_dir
+                else None
+            )
             plot_duffing_trajectories_vs_neural_ode(
                 time_grid,
                 stoch_for_plot,
@@ -393,7 +403,7 @@ def run_loading_mode(args: argparse.Namespace) -> None:
                 save_path=save_path,
                 show_plot=args.show_plots,
             )
-    
+
     print("\nModel evaluation complete.")
 
 
@@ -401,15 +411,15 @@ def main():
     """Main entry point with command line argument parsing."""
     parser = create_argument_parser()
     args = parser.parse_args()
-    
+
     if args.simulate and not args.load:
         parser.error("--simulate requires --load to be specified")
-    
+
     if args.load:
         run_loading_mode(args)
     else:
         run_training_mode(args)
 
 
-if __name__ == "__main__":  
+if __name__ == "__main__":
     main()

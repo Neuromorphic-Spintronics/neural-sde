@@ -21,21 +21,21 @@ import sys
 import json
 import math
 
-# Add the current directory to path to import modules
 sys.path.append(".")
 from parameters import PhysicalDuffingParameters
 from systems.duffing_oscillator import DuffingOscillator
 from utils.plotting import set_default_plotting_style, style_axis_clean, COLOURS
+from examples.duffing_oscillator import (
+    load_trained_duffing_model,
+    simulate_with_loaded_model,
+)
 
-# Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Create figures directory
 FIGURES_DIR = Path(__file__).parent / "figures"
 FIGURES_DIR.mkdir(exist_ok=True)
 
-# Create data directory for parameter files
 DATA_DIR = Path("data")
 DATA_DIR.mkdir(exist_ok=True)
 
@@ -45,7 +45,6 @@ class TestPhysicalParameterConversion:
 
     def test_parameter_creation_and_json_export(self):
         """Test creation of physical parameters and export to JSON."""
-        # Create physical parameters using the new class
         physical_params = PhysicalDuffingParameters(
             mass=1.0,  # kg
             damping_coefficient=0.15,  # kg/s
@@ -62,11 +61,9 @@ class TestPhysicalParameterConversion:
             timestep=0.005,  # s
             total_time=50.0,  # s
         )
-        
-        # Convert to dimensionless parameters
+
         dimensionless_params = physical_params.to_dimensionless()
-        
-        # Convert to dictionaries for JSON export
+
         physical_dict = {
             "mass": physical_params.mass,
             "damping_coefficient": physical_params.damping_coefficient,
@@ -85,7 +82,7 @@ class TestPhysicalParameterConversion:
             "timestep": physical_params.timestep,
             "total_time": physical_params.total_time,
         }
-        
+
         dimensionless_dict = {
             "alpha": dimensionless_params.alpha,
             "beta": dimensionless_params.beta,
@@ -100,29 +97,26 @@ class TestPhysicalParameterConversion:
             "timestep": dimensionless_params.timestep,
             "total_time": dimensionless_params.total_time,
         }
-        
-        # Combine parameters
+
         full_params = {
             "physical": physical_dict,
             "dimensionless": dimensionless_dict,
-            "description": "Stochastic Duffing oscillator parameters with physical and dimensionless forms"
+            "description": "Stochastic Duffing oscillator parameters with physical and dimensionless forms",
         }
-        
-        # Save to JSON
+
         json_path = DATA_DIR / "duffing_parameters.json"
-        with open(json_path, 'w') as f:
+        with open(json_path, "w") as f:
             json.dump(full_params, f, indent=2)
-            
+
         assert json_path.exists(), "Parameter JSON file should be created"
-        
-        # Verify we can read it back
-        with open(json_path, 'r') as f:
+
+        with open(json_path, "r") as f:
             loaded_params = json.load(f)
-            
+
         assert "physical" in loaded_params
         assert "dimensionless" in loaded_params
         assert loaded_params["dimensionless"]["alpha"] == dimensionless_dict["alpha"]
-        
+
         logger.info(f"Physical and dimensionless parameters saved to {json_path}")
 
 
@@ -132,35 +126,41 @@ class TestDuffingOscillatorParameters:
     def test_parameter_validation(self):
         """Test that parameters satisfy physical constraints."""
         params = PhysicalDuffingParameters().to_dimensionless()
-        
-        # Test dimensionless parameter ranges
+
         assert params.mu >= 0, "Dimensionless damping mu should be non-negative"
         assert params.timestep > 0, "Timestep should be positive"
         assert params.total_time > 0, "Total time should be positive"
-        assert params.Theta >= 0, "Dimensionless temperature Theta should be non-negative"
-        assert params.D_tilde >= 0, "Dimensionless noise intensity D_tilde should be non-negative"
-        assert params.t_correl_tilde > 0, "Dimensionless correlation time should be positive"
-        
+        assert params.Theta >= 0, (
+            "Dimensionless temperature Theta should be non-negative"
+        )
+        assert params.D_tilde >= 0, (
+            "Dimensionless noise intensity D_tilde should be non-negative"
+        )
+        assert params.t_correl_tilde > 0, (
+            "Dimensionless correlation time should be positive"
+        )
+
         logger.info("Parameter validation passed")
 
     def test_equilibrium_points(self):
         """Test calculation of equilibrium points for double-well potential."""
         # Double well potential: alpha < 0, beta > 0
-        physical_double_well = PhysicalDuffingParameters(linear_stiffness=-1.0, nonlinear_stiffness=1.0)
+        physical_double_well = PhysicalDuffingParameters(
+            linear_stiffness=-1.0, nonlinear_stiffness=1.0
+        )
         params_double_well = physical_double_well.to_dimensionless()
         assert params_double_well.alpha < 0, "Should create double well potential"
-        
+
         # For double well, equilibrium points at q = 0, ±sqrt(-alpha/beta)
         q_eq = math.sqrt(-params_double_well.alpha / params_double_well.beta)
         assert q_eq > 0, "Equilibrium position should be positive"
-        
-        # Check equilibrium positions
+
         equilibria = params_double_well.equilibrium_positions
         assert len(equilibria) == 3, "Should have 3 equilibrium points"
         assert equilibria[0] == 0.0, "Origin should be an equilibrium"
         assert equilibria[1] == -q_eq, "Left well should be at -q_eq"
         assert equilibria[2] == q_eq, "Right well should be at q_eq"
-            
+
         logger.info("Equilibrium point calculations passed")
 
 
@@ -177,8 +177,8 @@ class TestStochasticDuffingOscillator:
             nonlinear_stiffness=1.0,
             forcing_amplitude=0.4,
             forcing_frequency=0.9,
-            temperature=0.0, # No thermal noise
-            coloured_noise_intensity=0.0, # No coloured noise
+            temperature=0.0,  # No thermal noise
+            coloured_noise_intensity=0.0,  # No coloured noise
             timestep=0.01,
             total_time=10.0,
         )
@@ -195,8 +195,8 @@ class TestStochasticDuffingOscillator:
             nonlinear_stiffness=1.0,
             forcing_amplitude=0.4,
             forcing_frequency=0.9,
-            temperature=1.0, # Cold temperature (1 K)
-            coloured_noise_intensity=0.005, # Small coloured noise
+            temperature=1.0,  # Cold temperature (1 K)
+            coloured_noise_intensity=0.005,  # Small coloured noise
             coloured_noise_correlation_time=0.5,
             timestep=0.005,
             total_time=20.0,
@@ -207,120 +207,121 @@ class TestStochasticDuffingOscillator:
     def test_state_vector_structure(self, stochastic_oscillator):
         """Test that the state vector has correct structure [q, v, xi]."""
         osc = stochastic_oscillator
-        
-        # Check dimension is 3 for [q, v, xi]
+
         assert osc.get_state_dimension() == 3, "State dimension should be 3"
-        
-        # Test initial state
+
         initial_state = osc.get_initial_state()
-        assert initial_state.shape == torch.Size([3]), "Initial state should have 3 components"
-        
+        assert initial_state.shape == torch.Size([3]), (
+            "Initial state should have 3 components"
+        )
+
         logger.info("State vector structure test passed")
 
     def test_drift_function_structure(self, stochastic_oscillator):
         """Test the drift function implements the correct SDE structure."""
         osc = stochastic_oscillator
-        
-        # Test state: [q, v, xi]
+
         test_state = torch.tensor([0.5, 0.1, 0.05])
         test_time = 1.0
-        
+
         drift = osc.drift_function(test_time, test_state)
-        
-        # Should return [dq/dt, dv/dt, dxi/dt]
+
         assert drift.shape == torch.Size([3]), "Drift should have 3 components"
-        
-        # dq/dt should equal v
+
         assert torch.isclose(drift[0], test_state[1]), "dq/dt should equal velocity v"
-        
-        # dv/dt should include all terms: -alpha*q - beta*q^3 - mu*v + gamma*cos(Omega*t) + xi
+
         q, v, xi = test_state
         expected_acceleration = (
-            -osc.params.alpha * q 
-            - osc.params.beta * torch.pow(q, 3) 
-            - osc.params.mu * v 
+            -osc.params.alpha * q
+            - osc.params.beta * torch.pow(q, 3)
+            - osc.params.mu * v
             + osc.params.gamma * torch.cos(osc.params.Omega * torch.tensor(test_time))
             + xi
         )
-        assert torch.isclose(drift[1], expected_acceleration, atol=1e-6), "Acceleration equation incorrect"
-        
-        # dxi/dt should be -xi/t_correl
+        assert torch.isclose(drift[1], expected_acceleration, atol=1e-6), (
+            "Acceleration equation incorrect"
+        )
+
         expected_xi_drift = -xi / osc.params.t_correl_tilde
-        assert torch.isclose(drift[2], expected_xi_drift), "Coloured noise drift incorrect"
-        
+        assert torch.isclose(drift[2], expected_xi_drift), (
+            "Coloured noise drift incorrect"
+        )
+
         logger.info("Drift function structure test passed")
 
     def test_diffusion_function_structure(self, stochastic_oscillator):
         """Test the diffusion function implements correct noise strengths."""
         osc = stochastic_oscillator
-        
+
         test_state = torch.tensor([0.5, 0.1, 0.05])
         test_time = 1.0
-        
+
         diffusion = osc.diffusion_function(test_time, test_state)
-        
-        # Should return [0, sqrt(2*mu*Theta), sqrt(2*D_tilde/t_correl_tilde)]
+
         assert diffusion.shape == torch.Size([3]), "Diffusion should have 3 components"
-        
-        # No noise on position equation
+
         assert torch.isclose(diffusion[0], torch.tensor(0.0)), "No noise on position"
-        
-        # White noise strength on velocity equation
+
         expected_white_noise = math.sqrt(2 * osc.params.mu * osc.params.Theta)
-        assert torch.isclose(diffusion[1], torch.tensor(expected_white_noise)), "White noise strength incorrect"
-        
-        # Coloured noise driving strength
-        expected_coloured_noise = math.sqrt(2 * osc.params.D_tilde / osc.params.t_correl_tilde)
-        assert torch.isclose(diffusion[2], torch.tensor(expected_coloured_noise)), "Coloured noise strength incorrect"
-        
+        assert torch.isclose(diffusion[1], torch.tensor(expected_white_noise)), (
+            "White noise strength incorrect"
+        )
+
+        expected_coloured_noise = math.sqrt(
+            2 * osc.params.D_tilde / osc.params.t_correl_tilde
+        )
+        assert torch.isclose(diffusion[2], torch.tensor(expected_coloured_noise)), (
+            "Coloured noise strength incorrect"
+        )
+
         logger.info("Diffusion function structure test passed")
 
     def test_deterministic_integration(self, deterministic_oscillator):
         """Test integration of deterministic case (no noise)."""
         osc = deterministic_oscillator
-        
-        # Set random seed for reproducibility
+
         torch.manual_seed(42)
-        
+
         time_grid, trajectory = osc.integrate_sde()
-        
-        # Check output structure
+
         assert time_grid.shape[0] == osc.num_steps + 1, "Time grid length incorrect"
         assert trajectory.shape == (osc.num_steps + 1, 3), "Trajectory shape incorrect"
-        
-        # Check no NaN or infinite values
+
         assert not torch.any(torch.isnan(trajectory)), "Trajectory contains NaN"
-        assert not torch.any(torch.isinf(trajectory)), "Trajectory contains infinite values"
-        
-        # For deterministic case, xi should remain at initial value (0.0) since no driving noise
+        assert not torch.any(torch.isinf(trajectory)), (
+            "Trajectory contains infinite values"
+        )
+
         xi_trajectory = trajectory[:, 2]
         # Note: xi will decay towards zero due to -xi/t_correl term
-        assert torch.all(torch.abs(xi_trajectory) < 1e-10), "Coloured noise should remain near zero in deterministic case"
-        
+        assert torch.all(torch.abs(xi_trajectory) < 1e-10), (
+            "Coloured noise should remain near zero in deterministic case"
+        )
+
         logger.info("Deterministic integration test passed")
 
     def test_stochastic_integration(self, stochastic_oscillator):
         """Test integration of stochastic case with noise."""
         osc = stochastic_oscillator
-        
-        # Set random seed for reproducibility
+
         torch.manual_seed(123)
-        
+
         time_grid, trajectory = osc.integrate_sde()
-        
-        # Check output structure
+
         assert time_grid.shape[0] == osc.num_steps + 1, "Time grid length incorrect"
         assert trajectory.shape == (osc.num_steps + 1, 3), "Trajectory shape incorrect"
-        
-        # Check no NaN or infinite values
+
         assert not torch.any(torch.isnan(trajectory)), "Trajectory contains NaN"
-        assert not torch.any(torch.isinf(trajectory)), "Trajectory contains infinite values"
-        
-        # In stochastic case, xi should fluctuate due to driving noise
+        assert not torch.any(torch.isinf(trajectory)), (
+            "Trajectory contains infinite values"
+        )
+
         xi_trajectory = trajectory[:, 2]
         xi_variance = torch.var(xi_trajectory)
-        assert xi_variance > 1e-6, "Coloured noise should show fluctuations in stochastic case"
-        
+        assert xi_variance > 1e-6, (
+            "Coloured noise should show fluctuations in stochastic case"
+        )
+
         logger.info("Stochastic integration test passed")
 
 
@@ -348,30 +349,31 @@ class TestEnergyConservationAndPhysics:
     def test_potential_energy_calculation(self, physics_oscillator):
         """Test the Duffing potential energy calculation."""
         osc = physics_oscillator
-        
-        # Test potential V(q) = alpha*q^2/2 + beta*q^4/4
+
         q_test = torch.tensor([0.0, 1.0, -1.0, 2.0])
         potential = osc.potential_energy(q_test)
-        
+
         expected_potential = (
-            osc.params.alpha * torch.pow(q_test, 2) / 2 + 
-            osc.params.beta * torch.pow(q_test, 4) / 4
+            osc.params.alpha * torch.pow(q_test, 2) / 2
+            + osc.params.beta * torch.pow(q_test, 4) / 4
         )
-        
-        assert torch.allclose(potential, expected_potential), "Potential energy calculation incorrect"
-        
-        # For double well (alpha < 0), check minima at q = ±sqrt(-alpha/beta)
+
+        assert torch.allclose(potential, expected_potential), (
+            "Potential energy calculation incorrect"
+        )
+
         if osc.params.alpha < 0 and osc.params.beta > 0:
             q_min = math.sqrt(-osc.params.alpha / osc.params.beta)
             V_min = osc.potential_energy(torch.tensor(q_min))
             V_zero = osc.potential_energy(torch.tensor(0.0))
-            assert V_min < V_zero, "Double well minima should be lower than central maximum"
-            
+            assert V_min < V_zero, (
+                "Double well minima should be lower than central maximum"
+            )
+
         logger.info("Potential energy calculation test passed")
 
     def test_energy_evolution_undamped(self, physics_oscillator):
         """Test energy evolution in undamped, unforced system."""
-        # Create undamped system
         physical_params = PhysicalDuffingParameters(
             mass=1.0,
             damping_coefficient=0.0,  # No damping
@@ -388,17 +390,19 @@ class TestEnergyConservationAndPhysics:
         )
         params = physical_params.to_dimensionless()
         osc = DuffingOscillator(params)
-        
+
         time_grid, trajectory = osc.integrate_sde()
         q, v = osc.get_position_velocity(trajectory)
-        
-        # Calculate total energy
+
         total_energy = osc.total_energy(q, v)
-        
-        # Energy should be approximately conserved (within numerical error)
-        energy_drift = torch.abs(total_energy[-1] - total_energy[0]) / torch.abs(total_energy[0])
-        assert energy_drift < 0.01, f"Energy drift {energy_drift:.6f} too large for undamped system"
-        
+
+        energy_drift = torch.abs(total_energy[-1] - total_energy[0]) / torch.abs(
+            total_energy[0]
+        )
+        assert energy_drift < 0.01, (
+            f"Energy drift {energy_drift:.6f} too large for undamped system"
+        )
+
         logger.info("Energy conservation test passed")
 
 
@@ -428,7 +432,6 @@ class TestPlottingAndVisualisation:
 
     def test_phase_space_plot(self, plotting_oscillator):
         """Test phase space plotting with coloured noise."""
-        # Disable LaTeX in CI environment
         use_tex = not os.environ.get("CI", False)
         set_default_plotting_style(use_tex=use_tex)
 
@@ -440,38 +443,32 @@ class TestPlottingAndVisualisation:
         q_np = q.cpu().numpy()
         v_np = v.cpu().numpy()
 
-        # Create enhanced phase space plot
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 
-        # Phase space with time colouring
         scatter = ax1.scatter(
-            q_np, v_np, c=time_grid.cpu().numpy(), 
-            cmap="magma", s=1, alpha=0.7
+            q_np, v_np, c=time_grid.cpu().numpy(), cmap="magma", s=1, alpha=0.7
         )
         ax1.plot(q_np[0], v_np[0], "k^", markersize=8, label="Initial")
         ax1.plot(q_np[-1], v_np[-1], "ks", markersize=8, label="Final")
-        ax1.set_xlabel(r"Position $q$")
-        ax1.set_ylabel(r"Velocity $v$")
+        ax1.set_xlabel(r"$q$")
+        ax1.set_ylabel(r"$v$")
         ax1.set_title("Phase Space Trajectory")
         ax1.legend()
         ax1.grid(True, alpha=0.3)
         style_axis_clean(ax1)
 
-        # Add colourbar
         cbar = plt.colorbar(scatter, ax=ax1)
-        cbar.set_label(r"Time $t$")
+        cbar.set_label(r"$t$")
 
-        # Potential landscape
         q_range = torch.linspace(-2.5, 2.5, 1000)
         V = osc.potential_energy(q_range)
         ax2.plot(q_range.cpu().numpy(), V.cpu().numpy(), "k-", linewidth=2)
-        ax2.set_xlabel(r"Position $q$")
-        ax2.set_ylabel(r"Potential $V(q)$")
+        ax2.set_xlabel(r"$q$")
+        ax2.set_ylabel(r"$V(q)$")
         ax2.set_title("Duffing Potential")
         ax2.grid(True, alpha=0.3)
         style_axis_clean(ax2)
 
-        # Mark equilibrium points for double well
         if osc.params.alpha < 0:
             q_eq = math.sqrt(-osc.params.alpha / osc.params.beta)
             ax2.axvline(-q_eq, color="black", linestyle="--", alpha=0.7, label="Stable")
@@ -481,7 +478,6 @@ class TestPlottingAndVisualisation:
 
         plt.tight_layout()
 
-        # Save plot
         plot_path = FIGURES_DIR / "stochastic_duffing_phase_space.png"
         plt.savefig(plot_path, dpi=300, bbox_inches="tight")
         plt.close()
@@ -501,36 +497,28 @@ class TestPlottingAndVisualisation:
         q, v = osc.get_position_velocity(trajectory)
         xi = trajectory[:, 2]  # Coloured noise
 
-        # Convert to numpy
         t_np = time_grid.cpu().numpy()
         xi_np = xi.cpu().numpy()
 
-        # Create noise analysis plot with 1x2 grid for the two noise components
         fig_noise = plt.figure(figsize=(12, 4))
-        
-        # Create grid layout: 1x2 for the two noise plots
-        gs_noise = fig_noise.add_gridspec(1, 2, width_ratios=[1, 1])
-        
-        # Two separate noise plots
-        ax1 = fig_noise.add_subplot(gs_noise[0, 0])  # White noise
-        ax2 = fig_noise.add_subplot(gs_noise[0, 1])  # Coloured noise
 
-        # White noise (simulated - using velocity noise as proxy)
-        # For white noise, we can simulate it from the velocity equation
+        gs_noise = fig_noise.add_gridspec(1, 2, width_ratios=[1, 1])
+
+        ax1 = fig_noise.add_subplot(gs_noise[0, 0])
+        ax2 = fig_noise.add_subplot(gs_noise[0, 1])
+
         # The white noise affects the velocity equation: dv/dt = ... + √(2μΘ) dW/dt
         white_noise_strength = math.sqrt(2 * osc.params.mu * osc.params.Theta)
-        # Generate white noise as random increments
         torch.manual_seed(42)  # For reproducibility
         white_noise = (torch.randn(len(t_np)) * white_noise_strength).numpy()
-        ax1.plot(t_np, white_noise, color='black', linewidth=1, label=r"$\eta_1(t)$")
+        ax1.plot(t_np, white_noise, color="black", linewidth=1, label=r"$\eta_1(t)$")
         ax1.set_xlabel(r"Time $t$")
         ax1.set_ylabel(r"$\eta_1(t)$")
         ax1.legend()
         ax1.grid(True, alpha=0.3)
         style_axis_clean(ax1)
 
-        # Coloured noise (black)
-        ax2.plot(t_np, xi_np, color='black', linewidth=1, label=r"$\eta_2(t)$")
+        ax2.plot(t_np, xi_np, color="black", linewidth=1, label=r"$\eta_2(t)$")
         ax2.set_xlabel(r"Time $t$")
         ax2.set_ylabel(r"$\eta_2(t)$")
         ax2.legend()
@@ -539,7 +527,6 @@ class TestPlottingAndVisualisation:
 
         plt.tight_layout()
 
-        # Save noise plot
         noise_plot_path = FIGURES_DIR / "stochastic_duffing_noise_analysis.png"
         plt.savefig(noise_plot_path, dpi=300, bbox_inches="tight")
         plt.close()
@@ -547,18 +534,34 @@ class TestPlottingAndVisualisation:
         assert noise_plot_path.exists(), "Noise analysis plot should be saved"
         logger.info(f"Noise analysis plot saved to {noise_plot_path}")
 
-        # Create separate energy plot
         fig_energy = plt.figure(figsize=(8, 6))
         ax_energy = fig_energy.add_subplot(111)
 
-        # Energy evolution
         kinetic_energy = osc.kinetic_energy(v)
         potential_energy = osc.potential_energy(q)
         total_energy = osc.total_energy(q, v)
-        
-        ax_energy.plot(t_np, kinetic_energy.cpu().numpy(), color=COLOURS[0], linewidth=1, label=r"Kinetic $T$")
-        ax_energy.plot(t_np, potential_energy.cpu().numpy(), color=COLOURS[1], linewidth=1, label=r"Potential $V$")
-        ax_energy.plot(t_np, total_energy.cpu().numpy(), color='black', linewidth=1, label=r"$E(t)$")
+
+        ax_energy.plot(
+            t_np,
+            kinetic_energy.cpu().numpy(),
+            color=COLOURS[0],
+            linewidth=1,
+            label=r"Kinetic $T$",
+        )
+        ax_energy.plot(
+            t_np,
+            potential_energy.cpu().numpy(),
+            color=COLOURS[1],
+            linewidth=1,
+            label=r"Potential $V$",
+        )
+        ax_energy.plot(
+            t_np,
+            total_energy.cpu().numpy(),
+            color="black",
+            linewidth=1,
+            label=r"$E(t)$",
+        )
         ax_energy.set_xlabel(r"Time $t$")
         ax_energy.set_ylabel(r"$E(t)$")
         ax_energy.legend()
@@ -567,7 +570,6 @@ class TestPlottingAndVisualisation:
 
         plt.tight_layout()
 
-        # Save energy plot
         energy_plot_path = FIGURES_DIR / "stochastic_duffing_energy_analysis.png"
         plt.savefig(energy_plot_path, dpi=300, bbox_inches="tight")
         plt.close()
@@ -577,5 +579,162 @@ class TestPlottingAndVisualisation:
 
 
 if __name__ == "__main__":
-    # Run tests if script is executed directly
     pytest.main([__file__, "-v", "--tb=short"])
+
+    tester = TestPhysicalParameterConversion()
+    tester.test_parameter_creation_and_json_export()
+
+    pytest.main([__file__ + "::TestStochasticDuffingOscillator", "-v"])
+
+
+class TestPhysicalAccuracy:
+    """Test that the model produces physically accurate trajectories."""
+
+    @pytest.fixture
+    def deterministic_oscillator(
+        self,
+    ) -> tuple[DuffingOscillator, PhysicalDuffingParameters]:
+        """Create a deterministic oscillator for testing."""
+        physical_params = PhysicalDuffingParameters(
+            mass=1.0,
+            damping_coefficient=0.15,
+            linear_stiffness=-1.0,
+            nonlinear_stiffness=1.0,
+            forcing_amplitude=0.4,
+            forcing_frequency=0.9,
+            temperature=0.0,  # No thermal noise
+            coloured_noise_intensity=0.0,  # No coloured noise
+            initial_position=0.0,  # Match training data
+            initial_velocity=0.0,  # Match training data
+            timestep=0.01,
+            total_time=25.0,
+        )
+        params = physical_params.to_dimensionless()
+        return DuffingOscillator(params), physical_params
+
+    def test_physical_residual(self, deterministic_oscillator):
+        """
+        Test the residual of the physical differential equations.
+
+        dq(t)/dt - v(t) = 0
+        dv(t)/dt - (-alpha q(t) - beta q(t)^3 - mu v(t) + gamma cos(Omega t)) = 0
+        """
+        oscillator, physical_params = deterministic_oscillator
+        time_grid_dim, trajectory_dim = oscillator.integrate_sde()
+        q_dim, v_dim = oscillator.get_position_velocity(trajectory_dim)
+
+        lambda_ = physical_params.characteristic_length
+        tau = physical_params.characteristic_time
+
+        t_phys = time_grid_dim * tau
+        q_phys = q_dim * lambda_
+        v_phys = v_dim * lambda_ / tau
+
+        dq_dt_phys = torch.gradient(q_phys, spacing=(t_phys,))[0]
+        dv_dt_phys = torch.gradient(v_phys, spacing=(t_phys,))[0]
+
+        residual_q = dq_dt_phys - v_phys
+
+        forcing = physical_params.forcing_amplitude * torch.cos(
+            physical_params.forcing_frequency * t_phys
+        )
+
+        acceleration_phys = (
+            -physical_params.linear_stiffness * q_phys
+            - physical_params.nonlinear_stiffness * torch.pow(q_phys, 3)
+            - physical_params.damping_coefficient * v_phys
+            + forcing
+        ) / physical_params.mass
+
+        residual_v = dv_dt_phys - acceleration_phys
+
+        assert torch.mean(torch.abs(residual_q)) < 1e-3
+        assert torch.mean(torch.abs(residual_v)) < 1e-3
+        logger.info("Physical residual test passed.")
+
+    def test_trajectory_matching_with_neural_ode(self, deterministic_oscillator):
+        """
+        Test that the trajectory matches the output of a trained neural ODE.
+        """
+        oscillator, _ = deterministic_oscillator
+        time_grid_dim, trajectory_dim = oscillator.integrate_sde()
+        q_sim, v_sim = oscillator.get_position_velocity(trajectory_dim)
+
+        model_path = "examples/models/duffing_neural_ode.pth"
+        if not os.path.exists(model_path):
+            pytest.skip(f"Trained model not found at {model_path}, skipping test.")
+
+        neural_ode, _ = load_trained_duffing_model(model_path)
+
+        initial_state_dim = oscillator.get_initial_state()
+
+        initial_state_node = initial_state_dim[:2]
+
+        time_grid_node, trajectory_node = simulate_with_loaded_model(
+            neural_ode,
+            initial_state=initial_state_node,
+            total_time=oscillator.params.total_time,
+            timestep=oscillator.params.timestep,
+            gamma=oscillator.params.gamma,
+            omega=oscillator.params.Omega,
+        )
+
+        trajectory_node = trajectory_node.squeeze(1)
+        q_node, v_node = trajectory_node[:, 0], trajectory_node[:, 1]
+
+        use_tex = not os.environ.get("CI", False)
+        set_default_plotting_style(use_tex=use_tex)
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
+
+        ax1.plot(
+            time_grid_dim.cpu().numpy(),
+            q_sim.cpu().numpy(),
+            label="Runge–Kutta 4th-order",
+            color=COLOURS[0],
+            linewidth=1.5,
+        )
+        ax1.plot(
+            time_grid_node.cpu().numpy(),
+            q_node.cpu().detach().numpy(),
+            label="Neural ODE",
+            linestyle="--",
+            color="black",
+            linewidth=1.5,
+        )
+        ax1.set_ylabel(r"$q(t)$")
+        ax1.legend(frameon=False)
+        style_axis_clean(ax1)
+
+        ax2.plot(
+            time_grid_dim.cpu().numpy(),
+            v_sim.cpu().numpy(),
+            label="Runge–Kutta 4th-order",
+            color=COLOURS[0],
+            linewidth=1.5,
+        )
+        ax2.plot(
+            time_grid_node.cpu().numpy(),
+            v_node.cpu().detach().numpy(),
+            label="Neural ODE",
+            linestyle="--",
+            color="black",
+            linewidth=1.5,
+        )
+        ax2.set_xlabel(r"$t$")
+        ax2.set_ylabel(r"$v(t)$")
+        ax2.legend(frameon=False)
+        style_axis_clean(ax2)
+
+        plt.tight_layout()
+        plot_path = FIGURES_DIR / "trajectory_deviation.pdf"
+        plt.savefig(plot_path, bbox_inches="tight")
+        plt.close(fig)
+        logger.info(f"Deviation plot saved to {plot_path}")
+
+        # The neural ODE is an approximation of the true dynamics. A higher
+        # tolerance is used here to account for potential differences between
+        # the integrator used for the ground truth and the one used to train
+        # the loaded model.
+        assert torch.allclose(q_sim, q_node, rtol=0.2, atol=0.2)
+        assert torch.allclose(v_sim, v_node, rtol=0.2, atol=0.2)
+        logger.info("Trajectory matching with neural ODE test passed.")
