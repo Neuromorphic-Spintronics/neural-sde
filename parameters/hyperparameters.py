@@ -5,6 +5,7 @@ from typing import List
 @dataclass(frozen=True)
 class LearningRates:
     """Learning rates for different network components."""
+
     drift: float
     diffusion: float
     discriminator: float

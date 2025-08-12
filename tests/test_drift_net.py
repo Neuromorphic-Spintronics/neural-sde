@@ -17,11 +17,14 @@ from config import DEVICE
 
 
 class TestDriftNet:
-    @pytest.mark.parametrize("arch,activation", [
-        (NetworkArchitecture(4, [64, 32], 2), torch.nn.Tanh),
-        (NetworkArchitecture(3, [32], 2), torch.nn.ReLU),
-        (NetworkArchitecture(5, [16, 8], 3), torch.nn.Sigmoid),
-    ])
+    @pytest.mark.parametrize(
+        "arch,activation",
+        [
+            (NetworkArchitecture(4, [64, 32], 2), torch.nn.Tanh),
+            (NetworkArchitecture(3, [32], 2), torch.nn.ReLU),
+            (NetworkArchitecture(5, [16, 8], 3), torch.nn.Sigmoid),
+        ],
+    )
     def test_initialisation_and_device(self, arch, activation):
         net = DriftNet(arch, activation=activation)
         assert net.architecture == arch
@@ -99,15 +102,18 @@ class TestDriftNet:
         ax.set_ylabel("")
         ax.set_title("")
         # Make axes square and set only three ticks
-        ax.set_aspect('equal', adjustable='box')
+        ax.set_aspect("equal", adjustable="box")
         ax.set_xticks([-2, 0, 2])
         ax.set_yticks([-2, 0, 2])
         plotting.style_axis_clean(ax)
         # Save to figures directory as PDF
         outdir = os.path.join(os.path.dirname(__file__), "figures")
         os.makedirs(outdir, exist_ok=True)
-        fig.savefig(os.path.join(outdir, "drift_net_demonstration.pdf"), bbox_inches="tight")
+        fig.savefig(
+            os.path.join(outdir, "drift_net_demonstration.pdf"), bbox_inches="tight"
+        )
         plt.close(fig)
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])
