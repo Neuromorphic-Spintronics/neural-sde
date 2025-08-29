@@ -36,7 +36,7 @@ class TestNeuralSDEInitialisation:
             output_size=state_dim * noise_dim,  # flattened diffusion matrix
         )
 
-        discriminator_arch = NetworkArchitecture(
+        critic_arch = NetworkArchitecture(
             input_size=64 * state_dim,  # 64 timesteps * state_dim
             hidden_sizes=[32, 16],
             output_size=1,
@@ -45,7 +45,7 @@ class TestNeuralSDEInitialisation:
         hyperparams = Hyperparameters(
             drift_network=drift_arch,
             diffusion_network=diffusion_arch,
-            discriminator_network=discriminator_arch,
+            critic_network=critic_arch,
             state_dimension=state_dim,
             input_dimension=input_dim,
             timestep=0.01,
@@ -72,11 +72,11 @@ class TestNeuralSDEInitialisation:
         assert neural_sde.diffusion_net.noise_dimension == noise_dim
 
     def test_infers_trajectory_length_correctly(self):
-        """Test that trajectory length is correctly inferred from discriminator network."""
+        """Test that trajectory length is correctly inferred from critic network."""
         state_dim = 2
         trajectory_length = 50
 
-        discriminator_arch = NetworkArchitecture(
+        critic_arch = NetworkArchitecture(
             input_size=trajectory_length * state_dim, hidden_sizes=[32], output_size=1
         )
 
@@ -84,15 +84,15 @@ class TestNeuralSDEInitialisation:
         hyperparams = Hyperparameters(
             drift_network=hyperparams.drift_network,
             diffusion_network=hyperparams.diffusion_network,
-            discriminator_network=discriminator_arch,
+            critic_network=critic_arch,
             state_dimension=state_dim,
             input_dimension=hyperparams.input_dimension,
             timestep=hyperparams.timestep,
         )
 
         neural_sde = NeuralSDE(hyperparams)
-        assert neural_sde.discriminator_net is not None
-        assert neural_sde.discriminator_net.trajectory_length == trajectory_length
+        assert neural_sde.critic_net is not None
+        assert neural_sde.critic_net.trajectory_length == trajectory_length
 
     def test_raises_error_for_invalid_diffusion_dimensions(self):
         """Test that invalid diffusion network dimensions raise an error."""
@@ -109,14 +109,14 @@ class TestNeuralSDEInitialisation:
             input_size=state_dim + 1 + 1, hidden_sizes=[16], output_size=state_dim
         )
 
-        discriminator_arch = NetworkArchitecture(
+        critic_arch = NetworkArchitecture(
             input_size=32 * state_dim, hidden_sizes=[16], output_size=1
         )
 
         hyperparams = Hyperparameters(
             drift_network=drift_arch,
             diffusion_network=diffusion_arch,
-            discriminator_network=discriminator_arch,
+            critic_network=critic_arch,
             state_dimension=state_dim,
             input_dimension=1,
             timestep=0.01,
@@ -125,13 +125,13 @@ class TestNeuralSDEInitialisation:
         with pytest.raises(ValueError, match="not divisible by state dimension"):
             NeuralSDE(hyperparams)
 
-    def test_raises_error_for_invalid_discriminator_dimensions(self):
-        """Test that invalid discriminator dimensions raise appropriate errors."""
+    def test_raises_error_for_invalid_critic_dimensions(self):
+        """Test that invalid critic dimensions raise appropriate errors."""
         state_dim = 2
         trajectory_length = 50
 
-        # Create discriminator with wrong input size
-        discriminator_arch = NetworkArchitecture(
+        # Create critic with wrong input size
+        critic_arch = NetworkArchitecture(
             input_size=trajectory_length * state_dim + 1,  # Wrong size
             hidden_sizes=[32],
             output_size=1,
@@ -141,7 +141,7 @@ class TestNeuralSDEInitialisation:
         hyperparams = Hyperparameters(
             drift_network=hyperparams.drift_network,
             diffusion_network=hyperparams.diffusion_network,
-            discriminator_network=discriminator_arch,
+            critic_network=critic_arch,
             state_dimension=state_dim,
             input_dimension=hyperparams.input_dimension,
             timestep=hyperparams.timestep,
@@ -150,9 +150,9 @@ class TestNeuralSDEInitialisation:
         with pytest.raises(ValueError, match="not divisible by state dimension"):
             NeuralSDE(hyperparams)
 
-    def test_raises_error_when_diffusion_present_but_no_discriminator(self):
-        """Test that discriminator is required when diffusion network is present."""
-        # Create hyperparameters with diffusion but no discriminator
+    def test_raises_error_when_diffusion_present_but_no_critic(self):
+        """Test that critic is required when diffusion network is present."""
+        # Create hyperparameters with diffusion but no critic
         state_dim = 3
         input_dim = 2
         noise_dim = 2
@@ -169,27 +169,27 @@ class TestNeuralSDEInitialisation:
             output_size=state_dim * noise_dim,
         )
 
-        # Create a dummy discriminator to satisfy the dataclass requirement
-        dummy_discriminator_arch = NetworkArchitecture(
+        # Create a dummy critic to satisfy the dataclass requirement
+        dummy_critic_arch = NetworkArchitecture(
             input_size=64 * state_dim, hidden_sizes=[32, 16], output_size=1
         )
 
-        # Create hyperparameters with discriminator (to satisfy dataclass)
+        # Create hyperparameters with critic (to satisfy dataclass)
         hyperparams = Hyperparameters(
             drift_network=drift_arch,
             diffusion_network=diffusion_arch,
-            discriminator_network=dummy_discriminator_arch,
+            critic_network=dummy_critic_arch,
             state_dimension=state_dim,
             input_dimension=input_dim,
             timestep=0.01,
         )
 
-        # Now remove the discriminator to test the constraint (bypass frozen dataclass)
-        object.__setattr__(hyperparams, "discriminator_network", None)
+        # Now remove the critic to test the constraint (bypass frozen dataclass)
+        object.__setattr__(hyperparams, "critic_network", None)
 
         with pytest.raises(
             ValueError,
-            match="Discriminator network is required for stochastic Neural SDEs",
+            match="Critic network is required for stochastic Neural SDEs",
         ):
             NeuralSDE(hyperparams)
 
@@ -211,7 +211,7 @@ class TestNeuralSDEInitialisation:
             output_size=state_dim * noise_dim,
         )
 
-        discriminator_arch = NetworkArchitecture(
+        critic_arch = NetworkArchitecture(
             input_size=32 * state_dim,  # 32 timesteps
             hidden_sizes=[16],
             output_size=1,
@@ -220,7 +220,7 @@ class TestNeuralSDEInitialisation:
         return Hyperparameters(
             drift_network=drift_arch,
             diffusion_network=diffusion_arch,
-            discriminator_network=discriminator_arch,
+            critic_network=critic_arch,
             state_dimension=state_dim,
             input_dimension=input_dim,
             timestep=0.01,
@@ -244,14 +244,14 @@ class TestNeuralSDEInitialisation:
             output_size=state_dim * noise_dim,
         )
 
-        discriminator_arch = NetworkArchitecture(
+        critic_arch = NetworkArchitecture(
             input_size=32 * state_dim, hidden_sizes=[16], output_size=1
         )
 
         return Hyperparameters(
             drift_network=drift_arch,
             diffusion_network=diffusion_arch,
-            discriminator_network=discriminator_arch,
+            critic_network=critic_arch,
             state_dimension=state_dim,
             input_dimension=input_dim,
             timestep=0.01,
@@ -358,14 +358,14 @@ class TestNeuralSDEForwardPass:
             output_size=state_dim * noise_dim,
         )
 
-        discriminator_arch = NetworkArchitecture(
+        critic_arch = NetworkArchitecture(
             input_size=64 * state_dim, hidden_sizes=[32], output_size=1
         )
 
         return Hyperparameters(
             drift_network=drift_arch,
             diffusion_network=diffusion_arch,
-            discriminator_network=discriminator_arch,
+            critic_network=critic_arch,
             state_dimension=state_dim,
             input_dimension=input_dim,
             timestep=0.01,
@@ -383,7 +383,7 @@ class TestNeuralSDEParameterCounting:
         param_counts = neural_sde.count_total_parameters()
 
         # Check that all expected keys are present
-        expected_keys = {"drift_net", "diffusion_net", "discriminator_net", "total"}
+        expected_keys = {"drift_net", "diffusion_net", "critic_net", "total"}
         assert set(param_counts.keys()) == expected_keys
 
         # Check that all counts are non-negative integers
@@ -395,7 +395,7 @@ class TestNeuralSDEParameterCounting:
         components_sum = (
             param_counts["drift_net"]
             + param_counts["diffusion_net"]
-            + param_counts["discriminator_net"]
+            + param_counts["critic_net"]
         )
         assert param_counts["total"] == components_sum
 
@@ -409,7 +409,7 @@ class TestNeuralSDEParameterCounting:
         # When stochastic, all networks should have some parameters (not zero)
         assert param_counts["drift_net"] > 0
         assert param_counts["diffusion_net"] > 0
-        assert param_counts["discriminator_net"] > 0
+        assert param_counts["critic_net"] > 0
         assert param_counts["total"] > 0
 
     def _create_minimal_hyperparams(self) -> Hyperparameters:
@@ -430,14 +430,14 @@ class TestNeuralSDEParameterCounting:
             output_size=state_dim * noise_dim,
         )
 
-        discriminator_arch = NetworkArchitecture(
+        critic_arch = NetworkArchitecture(
             input_size=32 * state_dim, hidden_sizes=[16], output_size=1
         )
 
         return Hyperparameters(
             drift_network=drift_arch,
             diffusion_network=diffusion_arch,
-            discriminator_network=discriminator_arch,
+            critic_network=critic_arch,
             state_dimension=state_dim,
             input_dimension=input_dim,
             timestep=0.01,

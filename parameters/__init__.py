@@ -11,7 +11,7 @@ HYPERPARAMETERS: Final[Hyperparameters] = Hyperparameters(
     diffusion_network=NetworkArchitecture(
         input_size=1, hidden_sizes=[100, 100], output_size=1
     ),
-    discriminator_network=NetworkArchitecture(
+    critic_network=NetworkArchitecture(
         input_size=1, hidden_sizes=[100, 100], output_size=1
     ),
     state_dimension=1,
