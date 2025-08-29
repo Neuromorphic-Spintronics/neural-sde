@@ -273,7 +273,7 @@ class CriticNet(FeedForwardNetwork):
             )
 
         # Flatten trajectory segments for the feedforward network
-        flat_trajectories = trajectory_segment.view(
+        flat_trajectories = trajectory_segment.reshape(
             batch_size, trajectory_length * state_dimension
         )
         return self.forward(flat_trajectories)
