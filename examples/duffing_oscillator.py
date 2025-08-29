@@ -81,7 +81,7 @@ def create_duffing_neural_ode_demonstration(
     **kwargs,
 ) -> Tuple[DriftNet, List[float], Dict[str, Any]]:
     """Create Duffing neural ODE demonstration using the template."""
-    kwargs.setdefault("save_directory", "examples/figures")
+    kwargs.setdefault("save_directory", "examples")
     kwargs.setdefault("system_name", SYSTEM_NAME)
     return create_neural_ode_demonstration(**kwargs)
 
@@ -282,7 +282,7 @@ Examples:
         "--initial-state",
         nargs=2,
         type=float,
-        default=[0.1, 0.0],
+        default=[0.0, 0.0],
         metavar=("POS", "VEL"),
         help="Initial conditions [position, velocity] for simulation (default: 0.1 0.0)",
     )
@@ -303,7 +303,7 @@ Examples:
     training_group.add_argument(
         "--epochs",
         type=int,
-        default=300,
+        default=512,
         help="Number of training epochs (default: 300)",
     )
     training_group.add_argument(
@@ -331,8 +331,8 @@ Examples:
     parser.add_argument(
         "--save-dir",
         type=str,
-        default="examples/figures",
-        help="Directory to save figures (default: examples/figures)",
+        default="examples",
+        help="Base directory to save all outputs (figures, models, data) (default: examples)",
     )
 
     return parser
@@ -360,7 +360,7 @@ def run_training_mode(args: argparse.Namespace) -> None:
         learning_rate=learning_rate,
         save_directory=args.save_dir,
         show_plots=args.show_plots,
-        trajectory_batch_size=128,
+        trajectory_batch_size=512,
         training_batch_size=training_batch_size,
         with_noise=not args.no_noise,
     )
@@ -391,7 +391,7 @@ def run_loading_mode(args: argparse.Namespace) -> None:
             print("Creating trajectory visualisation...")
             stoch_for_plot = trajectory.squeeze(1).unsqueeze(0)
             save_path = (
-                Path(args.save_dir) / "loaded_model_trajectory.png"
+                Path(args.save_dir) / "loaded_model_trajectory.pdf"
                 if args.save_dir
                 else None
             )

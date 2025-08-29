@@ -45,17 +45,17 @@
             "has_external_forcing": true
         },
         "training_configuration": {
-            "num_trajectories": 256,
+            "num_trajectories": 512,
             "total_time": 25.0,
             "timestep": 0.01,
-            "num_epochs": 300,
+            "num_epochs": 512,
             "learning_rate": 0.00034,
-            "trajectory_batch_size": 128,
+            "trajectory_batch_size": 512,
             "training_batch_size": 16
         },
         "training_results": {
-            "final_loss": 4.108209605835356e-09,
-            "initial_loss": 2.2625050178248785e-05
+            "final_loss": 6.880935335407123e-10,
+            "initial_loss": 1.8956484638010807e-05
         }
     }
 }

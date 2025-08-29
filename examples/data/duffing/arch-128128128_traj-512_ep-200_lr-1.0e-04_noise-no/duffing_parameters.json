@@ -1,5 +1,5 @@
 {
-    "system_name": "duffing_retrained",
+    "system_name": "duffing",
     "physical_parameters": {
         "mass": 1.0,
         "damping_coefficient": 0.15,
@@ -36,8 +36,8 @@
     "ml_parameters": {
         "model_architecture": {
             "hidden_layer_sizes": [
-                256,
-                256,
+                128,
+                128,
                 128
             ],
             "input_size": 4,
@@ -45,17 +45,17 @@
             "has_external_forcing": true
         },
         "training_configuration": {
-            "num_trajectories": 256,
+            "num_trajectories": 512,
             "total_time": 25.0,
             "timestep": 0.01,
-            "num_epochs": 150,
-            "learning_rate": 0.002,
-            "trajectory_batch_size": 8,
+            "num_epochs": 200,
+            "learning_rate": 0.0001,
+            "trajectory_batch_size": 512,
             "training_batch_size": 16
         },
         "training_results": {
-            "final_loss": 2.1234020906035767e-06,
-            "initial_loss": 0.00019196354060113663
+            "final_loss": 1.0454347693089616e-08,
+            "initial_loss": 2.241131323899026e-05
         }
     }
 }
