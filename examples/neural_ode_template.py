@@ -726,14 +726,14 @@ def plot_phase_space_comparison(
 
 
 def create_neural_ode_demonstration(
-    *,
+    *, 
     num_trajectories: int = 16,
     total_time: float = 25.0,
     timestep: float = 0.01,
     hidden_layer_sizes: list[int] | None = None,
     num_epochs: int = 100,
     learning_rate: float = 2e-3,
-    save_directory: str | Path = "examples/figures",
+    save_directory: str | Path = "examples",
     show_plots: bool = False,
     trajectory_batch_size: int = 8,
     training_batch_size: int = 16,
@@ -746,7 +746,7 @@ def create_neural_ode_demonstration(
     This function:
     1. Generates stochastic training data
     2. Builds and trains the neural ODE
-    3. Creates publication-quality visualisations
+    3. Creates publication-quality visualisations and saves results in structured folders.
 
     Args:
         num_trajectories: Number of stochastic trajectories to generate
@@ -755,7 +755,7 @@ def create_neural_ode_demonstration(
         hidden_layer_sizes: Neural network architecture
         num_epochs: Number of training epochs
         learning_rate: Optimiser learning rate
-        save_directory: Directory to save figures
+        save_directory: Base directory to save outputs
         show_plots: Whether to display plots interactively
         trajectory_batch_size: Batch size for parallel trajectory generation
         training_batch_size: Batch size for training
@@ -769,11 +769,30 @@ def create_neural_ode_demonstration(
     if system_name is None:
         system_name = SYSTEM_NAME
 
-    save_dir = Path(save_directory)
-    save_dir.mkdir(exist_ok=True)
+    # Generate a unique directory name from hyperparameters
+    hyperparam_string = _generate_hyperparameter_string(
+        hidden_layer_sizes=hidden_layer_sizes,
+        num_trajectories=num_trajectories,
+        num_epochs=num_epochs,
+        learning_rate=learning_rate,
+        with_noise=with_noise,
+    )
+
+    # Create structured directories for saving outputs
+    base_save_dir = Path(save_directory)
+    figure_dir = base_save_dir / "figures" / system_name / hyperparam_string
+    model_dir = base_save_dir / "models" / system_name / hyperparam_string
+    data_dir = base_save_dir / "data" / system_name / hyperparam_string
+
+    figure_dir.mkdir(parents=True, exist_ok=True)
+    model_dir.mkdir(parents=True, exist_ok=True)
+    data_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Starting {system_name} Neural ODE Demonstration")
     print("=" * 70)
+    print(
+        f"Results will be saved in: {base_save_dir}/<type>/{system_name}/{hyperparam_string}"
+    )
     print("Configuration:")
     print(f"   System: {system_name}")
     print(f"   Trajectories: {num_trajectories}")
@@ -836,32 +855,32 @@ def create_neural_ode_demonstration(
     figures = [
         (
             "Training loss evolution",
-            f"{system_name}_training_loss.png",
+            f"{system_name}_training_loss.pdf",
             lambda: plot_training_loss(
                 training_losses,
-                save_path=save_dir / f"{system_name}_training_loss.png",
+                save_path=figure_dir / f"{system_name}_training_loss.pdf",
                 show_plot=show_plots,
             ),
         ),
         (
             "Trajectory comparison",
-            f"{system_name}_trajectory_comparison.png",
+            f"{system_name}_trajectory_comparison.pdf",
             lambda: plot_trajectory_comparison(
                 time_grid,
                 stochastic_trajectories,
                 neural_time,
                 neural_trajectory,
-                save_path=save_dir / f"{system_name}_trajectory_comparison.png",
+                save_path=figure_dir / f"{system_name}_trajectory_comparison.pdf",
                 show_plot=show_plots,
             ),
         ),
         (
             "Phase space portrait",
-            f"{system_name}_phase_space.png",
+            f"{system_name}_phase_space.pdf",
             lambda: plot_phase_space_comparison(
                 stochastic_trajectories,
                 neural_trajectory,
-                save_path=save_dir / f"{system_name}_phase_space.png",
+                save_path=figure_dir / f"{system_name}_phase_space.pdf",
                 show_plot=show_plots,
             ),
         ),
@@ -872,11 +891,9 @@ def create_neural_ode_demonstration(
     ):
         plot_func()
 
-    print(f"   All figures saved to {save_dir}")
+    print(f"   All figures saved to {figure_dir}")
 
     # 6. Model saving
-    model_dir = Path("examples/models")
-    model_dir.mkdir(exist_ok=True)
     print(f"Saving trained {system_name} neural ODE model...")
     model_path = model_dir / f"{system_name}_neural_ode.pth"
     torch.save(
@@ -923,9 +940,7 @@ def create_neural_ode_demonstration(
     print(f"   Model and history saved to {model_dir}")
 
     # 7. Save parameters to JSON
-    params_dir = Path("examples/data")
-    params_dir.mkdir(exist_ok=True)
-    params_path = params_dir / f"{system_name}_parameters.json"
+    params_path = data_dir / f"{system_name}_parameters.json"
     print(f"Saving parameters to {params_path}")
 
     physical_params = _get_default_physical_parameters()
@@ -969,6 +984,23 @@ def create_neural_ode_demonstration(
     print("   Parameters saved successfully.")
 
     return drift_network, training_losses, {"final_loss": training_losses[-1]}
+
+
+
+def _generate_hyperparameter_string(
+    hidden_layer_sizes: list[int],
+    num_trajectories: int,
+    num_epochs: int,
+    learning_rate: float,
+    with_noise: bool,
+) -> str:
+    """Generate a string representation of hyperparameters for directory naming."""
+    arch_str = f"arch-{''.join(map(str, hidden_layer_sizes))}"
+    traj_str = f"traj-{num_trajectories}"
+    epoch_str = f"ep-{num_epochs}"
+    lr_str = f"lr-{learning_rate:.1e}"
+    noise_str = f"noise-{'yes' if with_noise else 'no'}"
+    return f"{arch_str}_{traj_str}_{epoch_str}_{lr_str}_{noise_str}"
 
 
 if __name__ == "__main__":

@@ -1,0 +1,61 @@
+{
+    "system_name": "duffing",
+    "physical_parameters": {
+        "mass": 1.0,
+        "damping_coefficient": 0.15,
+        "linear_stiffness": -1.0,
+        "nonlinear_stiffness": 1.0,
+        "forcing_amplitude": 0.4,
+        "forcing_frequency": 0.9,
+        "characteristic_length": 1.0,
+        "characteristic_time": 1.0,
+        "temperature": 300.0,
+        "boltzmann_constant": 1.380649e-23,
+        "coloured_noise_intensity": 0.04,
+        "coloured_noise_correlation_time": 0.5,
+        "initial_position": 0.1,
+        "initial_velocity": 0.0,
+        "timestep": 0.01,
+        "total_time": 25.0
+    },
+    "dimensionless_parameters": {
+        "alpha": -1.0,
+        "beta": 1.0,
+        "mu": 0.15,
+        "gamma": 0.4,
+        "Omega": 0.9,
+        "Theta": 4.141947e-21,
+        "D_tilde": 0.04,
+        "t_correl_tilde": 0.5,
+        "timestep": 0.01,
+        "total_time": 25.0,
+        "initial_position": 0.1,
+        "initial_velocity": 0.0,
+        "initial_coloured_noise": 0.0
+    },
+    "ml_parameters": {
+        "model_architecture": {
+            "hidden_layer_sizes": [
+                128,
+                128,
+                128
+            ],
+            "input_size": 4,
+            "output_size": 2,
+            "has_external_forcing": true
+        },
+        "training_configuration": {
+            "num_trajectories": 256,
+            "total_time": 25.0,
+            "timestep": 0.01,
+            "num_epochs": 512,
+            "learning_rate": 0.00034,
+            "trajectory_batch_size": 512,
+            "training_batch_size": 16
+        },
+        "training_results": {
+            "final_loss": 1.7232168539327297e-09,
+            "initial_loss": 2.2625050178248785e-05
+        }
+    }
+}
