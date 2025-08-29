@@ -1,12 +1,12 @@
 """
 Neural Stochastic Differential Equation (Neural SDE) model with adversarial training.
 
-This module implements a neural SDE framework that can learn the dynamics of stochastic systems through a combination of neural networks representing drift and diffusion terms, along with adversarial training using a discriminator.
+This module implements a neural SDE framework that can learn the dynamics of stochastic systems through a combination of neural networks representing drift and diffusion terms, along with adversarial training using a critic.
 
 Key components:
 - `DriftNet`: Neural network approximating deterministic dynamics mu(x, t, u)
 - `DiffusionNet`: Neural network approximating stochastic dynamics sigma(x, t, u)
-- `DiscriminatorNet`: Critic network for adversarial training
+- `CriticNet`: Critic network for adversarial training
 - `NeuralSDE`: Main class combining networks with SDE integration for simulation
 """
 
@@ -206,11 +206,13 @@ class DiffusionNet(FeedForwardNetwork):
         return diffusion_matrix
 
 
-class DiscriminatorNet(FeedForwardNetwork):
-    """
-    Discriminator network for adversarial training of neural SDEs.
+class CriticNet(FeedForwardNetwork):
+    """Critic network for adversarial training of neural SDEs.
 
-    This network acts as a critic that scores trajectory segments to distinguish between real (from the 'true' (simulated) system) and synthetic (from the neural SDE) trajectories. Used in Wasserstein GAN training with gradient penalty (to ensure 1-Lipschitz).
+    This network scores trajectory segments to distinguish between real (from the
+    'true' (simulated) system) and synthetic (from the neural SDE) trajectories.
+    Used in Wasserstein GAN training with gradient penalty (to ensure
+    1-Lipschitz).
 
     Args:
         architecture: Network architecture specification
@@ -219,9 +221,9 @@ class DiscriminatorNet(FeedForwardNetwork):
         device: Computation device
 
     Example:
-        >>> # Discriminator for trajectory chunks of length 64 with 3D states
+        >>> # Critic for trajectory chunks of length 64 with 3D states
         >>> architecture = NetworkArchitecture(input_size=192, hidden_sizes=[64, 32], output_size=1)
-        >>> disc = DiscriminatorNet(architecture, trajectory_length=64)
+        >>> critic = CriticNet(architecture, trajectory_length=64)
     """
 
     def __init__(
@@ -231,9 +233,8 @@ class DiscriminatorNet(FeedForwardNetwork):
         activation: Callable[[], nn.Module] = nn.Tanh,
         *,
         device: torch.device = DEVICE,
-    ) -> None:
-        """
-        Initialise the discriminator network.
+    ):
+        """Initialise the critic network.
 
         Args:
             architecture: Network structure specification
@@ -241,56 +242,41 @@ class DiscriminatorNet(FeedForwardNetwork):
             activation: Activation function
             device: Computation device
         """
-        super().__init__(architecture, activation, device=device)
+        super().__init__(architecture, activation=activation, device=device)
         self.trajectory_length = trajectory_length
 
-        # Validate architecture matches expected input size
-        # Input should be trajectory_length * state_dim
-        if architecture.output_size != 1:
-            raise ValueError(
-                f"Discriminator output size must be 1, got {architecture.output_size}"
-            )
-
-    def score_trajectory(self, trajectory_segment: Tensor) -> Tensor:
-        """
-        Score a trajectory segment using the discriminator network.
+    def score(self, trajectory_segment: Tensor) -> Tensor:
+        """Score a trajectory segment using the critic network.
 
         This method takes a batch of trajectory segments and flattens them
         to pass through the feedforward network, producing a score for each
-        trajectory that indicates how "real" vs "fake" the discriminator
+        trajectory that indicates how "real" vs "fake" the critic
         believes each trajectory to be.
 
         Args:
-            trajectory_segment: Trajectory of shape [batch_size, trajectory_length, state_dim]
+            trajectory_segment: Trajectory of shape [batch_size,
+                trajectory_length, state_dim]
 
         Returns:
-            Scores of shape [batch_size, 1] - higher scores indicate more "real" trajectories
+            Scores of shape [batch_size, 1] - higher scores indicate more
+            "real" trajectories
 
         Raises:
-            ValueError: If trajectory dimensions don't match expected architecture
+            ValueError: If trajectory dimensions don't match expected
+                architecture
         """
-        batch_size, traj_len, state_dim = trajectory_segment.shape
-
-        # Validate input dimensions
-        if traj_len != self.trajectory_length:
+        batch_size, trajectory_length, state_dimension = trajectory_segment.shape
+        if trajectory_length != self.trajectory_length:
             raise ValueError(
-                f"Expected trajectory length {self.trajectory_length}, got {traj_len}"
+                f"Trajectory length {trajectory_length} does not match "
+                f"critic's expected length {self.trajectory_length}"
             )
 
-        expected_input_size = self.trajectory_length * state_dim
-        if expected_input_size != self.architecture.input_size:
-            raise ValueError(
-                f"Trajectory dimensions ({traj_len} × {state_dim} = {expected_input_size}) "
-                f"don't match architecture input size {self.architecture.input_size}"
-            )
-
-        # Flatten trajectory for feedforward network: [batch_size, trajectory_length * state_dim]
-        flattened_trajectory = trajectory_segment.view(batch_size, -1)
-
-        # Pass through the discriminator network
-        scores = self.forward(flattened_trajectory)
-
-        return scores
+        # Flatten trajectory segments for the feedforward network
+        flat_trajectories = trajectory_segment.view(
+            batch_size, trajectory_length * state_dimension
+        )
+        return self.forward(flat_trajectories)
 
 
 class NeuralSDE(nn.Module, NeuralSDEProtocol):
@@ -302,8 +288,6 @@ class NeuralSDE(nn.Module, NeuralSDEProtocol):
     The system automatically selects the appropriate integration method:
     - Stochastic Heun method for neural SDEs (when diffusion_net is present)
     - Second-order Runge-Kutta (RK2) method for neural ODEs (when diffusion_net is None)
-
-    **Important Constraint**: For stochastic systems (when diffusion_net is present), a discriminator network is required for adversarial training. For deterministic systems, the discriminator is optional.
 
     Args:
         hyperparameters: Complete hyperparameter specification including network architectures, provided by the Hyperparameters class
@@ -359,9 +343,9 @@ class NeuralSDE(nn.Module, NeuralSDEProtocol):
             device=device,
         )
 
-        # Discriminator network initialisation (validation already enforces presence/output size)
-        self.discriminator_net = DiscriminatorNet(
-            architecture=hyperparameters.discriminator_network,
+        # Critic network initialisation (validation already enforces presence/output size)
+        self.critic_net = CriticNet(
+            architecture=hyperparameters.critic_network,
             trajectory_length=self._infer_trajectory_length(hyperparameters),
             device=device,
         )
@@ -418,32 +402,32 @@ class NeuralSDE(nn.Module, NeuralSDEProtocol):
                 f"Input dimension must be non-negative, got {hyperparameters.input_dimension}"
             )
 
-        # Validate discriminator network is provided for stochastic systems
+        # Validate critic network is provided for stochastic systems
         if (
-            not hasattr(hyperparameters, "discriminator_network")
-            or hyperparameters.discriminator_network is None
+            not hasattr(hyperparameters, "critic_network")
+            or hyperparameters.critic_network is None
         ):
             raise ValueError(
-                "Discriminator network is required for stochastic Neural SDEs "
+                "Critic network is required for stochastic Neural SDEs "
                 "(when diffusion network is present) for adversarial training"
             )
 
-        # Validate discriminator network architecture if provided
+        # Validate critic network architecture if provided
         if (
-            hasattr(hyperparameters, "discriminator_network")
-            and hyperparameters.discriminator_network is not None
+            hasattr(hyperparameters, "critic_network")
+            and hyperparameters.critic_network is not None
         ):
-            if not hasattr(hyperparameters.discriminator_network, "input_size"):
+            if not hasattr(hyperparameters.critic_network, "input_size"):
                 raise ValueError(
-                    "Discriminator network architecture missing input_size"
+                    "Critic network architecture missing input_size"
                 )
-            if not hasattr(hyperparameters.discriminator_network, "output_size"):
+            if not hasattr(hyperparameters.critic_network, "output_size"):
                 raise ValueError(
-                    "Discriminator network architecture missing output_size"
+                    "Critic network architecture missing output_size"
                 )
-            if hyperparameters.discriminator_network.output_size != 1:
+            if hyperparameters.critic_network.output_size != 1:
                 raise ValueError(
-                    f"Discriminator network output size must be 1, got {hyperparameters.discriminator_network.output_size}"
+                    f"Critic network output size must be 1, got {hyperparameters.critic_network.output_size}"
                 )
 
     def _infer_noise_dimension(self, hyperparameters: Hyperparameters) -> int:
@@ -485,25 +469,25 @@ class NeuralSDE(nn.Module, NeuralSDEProtocol):
 
     def _infer_trajectory_length(self, hyperparameters: Hyperparameters) -> int:
         """
-        Infer trajectory length from discriminator network input size.
+        Infer trajectory length from critic network input size.
 
         Args:
             hyperparameters: Configuration containing network architectures
 
         Returns:
-            Trajectory length for discriminator input
+            Trajectory length for critic input
         """
         state_dim = hyperparameters.state_dimension
-        discriminator_input_size = hyperparameters.discriminator_network.input_size
+        critic_input_size = hyperparameters.critic_network.input_size
 
-        # Discriminator input is flattened trajectory: trajectory_length * state_dim
-        if discriminator_input_size % state_dim != 0:
+        # Critic input is flattened trajectory: trajectory_length * state_dim
+        if critic_input_size % state_dim != 0:
             raise ValueError(
-                f"Discriminator network input size {discriminator_input_size} is not "
+                f"Critic network input size {critic_input_size} is not "
                 f"divisible by state dimension {state_dim}"
             )
 
-        trajectory_length = discriminator_input_size // state_dim  # floor division
+        trajectory_length = critic_input_size // state_dim  # floor division
         if trajectory_length <= 0:
             raise ValueError(
                 f"Inferred trajectory length {trajectory_length} must be positive"
@@ -517,7 +501,7 @@ class NeuralSDE(nn.Module, NeuralSDEProtocol):
         """
         Simulate neural SDE trajectory given external inputs.
 
-        Steps through time using the configured integration method, with the neural networks providing drift and diffusion terms at each step. Gradients are retained for training via backpropagation through time (as per original paper by Manneschi et al.) or an adjoint method (to be implemented).
+        Steps through time using the configured integration method, with the neural networks providing drift and diffusion terms at each step. Gradients are retained for training via backpropagation through time (as per Manneschi et al.) or an adjoint method (to be implemented).
 
         Args:
             external_inputs: External forcing/control inputs of shape [batch_size, input_dimension, num_timesteps]
@@ -677,8 +661,8 @@ class NeuralSDE(nn.Module, NeuralSDEProtocol):
             "diffusion_net": count_network_parameters(self.diffusion_net)
             if self.diffusion_net
             else 0,
-            "discriminator_net": count_network_parameters(self.discriminator_net)
-            if self.discriminator_net
+            "critic_net": count_network_parameters(self.critic_net)
+            if self.critic_net
             else 0,
         }
 

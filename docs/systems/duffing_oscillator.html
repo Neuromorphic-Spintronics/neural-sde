@@ -149,15 +149,15 @@
 
                         <div class="docstring"><p>Stochastic Duffing Oscillator</p>
 
-<p>This module implements the stochastic Duffing oscillator as a system of first-order 
+<p>This module implements the stochastic Duffing oscillator as a system of first-order
 stochastic differential equations (SDEs) with both white and coloured noise.</p>
 
 <h6 id="the-dimensionless-sde-system-is">The dimensionless SDE system is:</h6>
 
 <blockquote>
   <p>dq(t) = v(t) dt
-  dv(t) = (-alpha q(t) - beta q(t)^3 - mu v(t) + gamma cos(Omega t) + xi(t)) dt + sqrt(2 mu Theta) \odot dW(t)
-  dxi(t) = -1/t_correl_tilde * xi(t) dt + sqrt(2 D_tilde / t_correl_tilde) \odot dW(t)</p>
+  dv(t) = (-alpha q(t) - beta q(t)^3 - mu v(t) + gamma cos(Omega t) + xi(t)) dt + sqrt(2 mu Theta) ⊙ dW(t)
+  dxi(t) = -1/t_correl_tilde * xi(t) dt + sqrt(2 D_tilde / t_correl_tilde) ⊙ dW(t)</p>
 </blockquote>
 
 <p>where the following are dimensionless parameters:
@@ -165,7 +165,7 @@ stochastic differential equations (SDEs) with both white and coloured noise.</p>
     v(t): velocity
     xi(t): auxiliary variable representing Ornstein-Uhlenbeck coloured noise
     alpha, beta: linear and nonlinear stiffness parameters
-    mu: damping coefficient<br />
+    mu: damping coefficient
     gamma: forcing amplitude
     Omega: forcing frequency
     Theta: temperature (white noise)
@@ -193,7 +193,7 @@ stochastic differential equations (SDEs) with both white and coloured noise.</p>
 
 <ul>
 <li>q(t) is dimensionless position</li>
-<li>v(t) is dimensionless velocity  </li>
+<li>v(t) is dimensionless velocity</li>
 <li>xi(t) is the Ornstein-Uhlenbeck process for coloured noise</li>
 </ul>
 </div>
@@ -409,7 +409,7 @@ stochastic differential equations (SDEs) with both white and coloured noise.</p>
 <h6 id="arguments">Arguments:</h6>
 
 <ul>
-<li><strong>t:</strong>  Current dimensionless time  </li>
+<li><strong>t:</strong>  Current dimensionless time</li>
 <li><strong>state:</strong>  Current state [q, v, xi]</li>
 </ul>
 

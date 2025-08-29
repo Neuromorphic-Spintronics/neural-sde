@@ -69,9 +69,6 @@
             <h2>API Documentation</h2>
                 <ul class="memberlist">
             <li>
-                    <a class="variable" href="#project_root">project_root</a>
-            </li>
-            <li>
                     <a class="variable" href="#SYSTEM_NAME">SYSTEM_NAME</a>
             </li>
             <li>
@@ -94,6 +91,9 @@
             </li>
             <li>
                     <a class="variable" href="#DEFAULT_TIMESTEP">DEFAULT_TIMESTEP</a>
+            </li>
+            <li>
+                    <a class="function" href="#runge_kutta_4_step">runge_kutta_4_step</a>
             </li>
             <li>
                     <a class="class" href="#NeuralODETrainingConfig">NeuralODETrainingConfig</a>
@@ -172,18 +172,6 @@
                 
                 
             </section>
-                <section id="project_root">
-                    <div class="attr variable">
-            <span class="name">project_root</span>        =
-<span class="default_value">PosixPath(&#39;/Users/jack/Library/Mobile Documents/com~apple~CloudDocs/Research/neural-sde&#39;)</span>
-
-        
-    </div>
-    <a class="headerlink" href="#project_root"></a>
-    
-    
-
-                </section>
                 <section id="SYSTEM_NAME">
                     <div class="attr variable">
             <span class="name">SYSTEM_NAME</span>        =
@@ -278,6 +266,21 @@
     <a class="headerlink" href="#DEFAULT_TIMESTEP"></a>
     
     
+
+                </section>
+                <section id="runge_kutta_4_step">
+                    <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">runge_kutta_4_step</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">drift_function</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="nb">float</span> <span class="o">|</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span>,</span><span class="param">	<span class="n">current_state</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">current_time</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">timestep</span><span class="p">:</span> <span class="nb">float</span></span><span class="return-annotation">) -> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>:</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#runge_kutta_4_step"></a>
+    
+            <div class="docstring"><p>Perform one step of the 4th-order Runge-Kutta method for ODEs.</p>
+</div>
+
 
                 </section>
                 <section id="NeuralODETrainingConfig">
@@ -396,7 +399,7 @@
                     <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">generate_stochastic_dataset</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="o">*</span>,</span><span class="param">	<span class="n">num_trajectories</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">16</span>,</span><span class="param">	<span class="n">total_time</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">dt</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">42069</span></span><span class="return-annotation">) -> <span class="n">Tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span>:</span></span>
+        <span class="name">generate_stochastic_dataset</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="o">*</span>,</span><span class="param">	<span class="n">num_trajectories</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">16</span>,</span><span class="param">	<span class="n">total_time</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">dt</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">42069</span>,</span><span class="param">	<span class="n">with_noise</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span></span><span class="return-annotation">) -> <span class="n">Tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span>:</span></span>
 
         
     </div>
@@ -475,7 +478,7 @@
                     <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">create_neural_ode_demonstration</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="o">*</span>,</span><span class="param">	<span class="n">num_trajectories</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">16</span>,</span><span class="param">	<span class="n">total_time</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">25.0</span>,</span><span class="param">	<span class="n">timestep</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.01</span>,</span><span class="param">	<span class="n">hidden_layer_sizes</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">num_epochs</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">100</span>,</span><span class="param">	<span class="n">learning_rate</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.002</span>,</span><span class="param">	<span class="n">save_directory</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span> <span class="o">=</span> <span class="s1">&#39;examples/figures&#39;</span>,</span><span class="param">	<span class="n">show_plots</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">trajectory_batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">8</span>,</span><span class="param">	<span class="n">training_batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">16</span>,</span><span class="param">	<span class="n">system_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="n">Tuple</span><span class="p">[</span><span class="n"><a href="../models/neural_sde.html#DriftNet">models.neural_sde.DriftNet</a></span><span class="p">,</span> <span class="n">List</span><span class="p">[</span><span class="nb">float</span><span class="p">],</span> <span class="nb">dict</span><span class="p">]</span>:</span></span>
+        <span class="name">create_neural_ode_demonstration</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="o">*</span>,</span><span class="param">	<span class="n">num_trajectories</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">16</span>,</span><span class="param">	<span class="n">total_time</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">25.0</span>,</span><span class="param">	<span class="n">timestep</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.01</span>,</span><span class="param">	<span class="n">hidden_layer_sizes</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">num_epochs</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">100</span>,</span><span class="param">	<span class="n">learning_rate</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.002</span>,</span><span class="param">	<span class="n">save_directory</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">_local</span><span class="o">.</span><span class="n">Path</span> <span class="o">=</span> <span class="s1">&#39;examples&#39;</span>,</span><span class="param">	<span class="n">show_plots</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>,</span><span class="param">	<span class="n">trajectory_batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">8</span>,</span><span class="param">	<span class="n">training_batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">16</span>,</span><span class="param">	<span class="n">with_noise</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>,</span><span class="param">	<span class="n">system_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="n">Tuple</span><span class="p">[</span><span class="n"><a href="../models/neural_sde.html#DriftNet">models.neural_sde.DriftNet</a></span><span class="p">,</span> <span class="n">List</span><span class="p">[</span><span class="nb">float</span><span class="p">],</span> <span class="nb">dict</span><span class="p">]</span>:</span></span>
 
         
     </div>
@@ -488,7 +491,7 @@
 <ol>
 <li>Generates stochastic training data</li>
 <li>Builds and trains the neural ODE</li>
-<li>Creates publication-quality visualisations</li>
+<li>Creates publication-quality visualisations and saves results in structured folders.</li>
 </ol>
 
 <h6 id="arguments">Arguments:</h6>
@@ -500,10 +503,11 @@
 <li><strong>hidden_layer_sizes:</strong>  Neural network architecture</li>
 <li><strong>num_epochs:</strong>  Number of training epochs</li>
 <li><strong>learning_rate:</strong>  Optimiser learning rate</li>
-<li><strong>save_directory:</strong>  Directory to save figures</li>
+<li><strong>save_directory:</strong>  Base directory to save outputs</li>
 <li><strong>show_plots:</strong>  Whether to display plots interactively</li>
 <li><strong>trajectory_batch_size:</strong>  Batch size for parallel trajectory generation</li>
 <li><strong>training_batch_size:</strong>  Batch size for training</li>
+<li><strong>with_noise:</strong>  Whether to include stochastic noise in the training data</li>
 </ul>
 
 <h6 id="returns">Returns:</h6>

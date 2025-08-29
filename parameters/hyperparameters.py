@@ -8,7 +8,7 @@ class LearningRates:
 
     drift: float
     diffusion: float
-    discriminator: float
+    critic: float
 
     def __post_init__(self):
         """Validate learning rates."""
@@ -16,8 +16,8 @@ class LearningRates:
             raise ValueError("Drift learning rate must be greater than 0")
         if self.diffusion <= 0:
             raise ValueError("Diffusion learning rate must be greater than 0")
-        if self.discriminator <= 0:
-            raise ValueError("Discriminator learning rate must be greater than 0")
+        if self.critic <= 0:
+            raise ValueError("Critic learning rate must be greater than 0")
 
 
 @dataclass(frozen=True)
@@ -65,7 +65,7 @@ class Hyperparameters:
     # Network architecture parameters
     drift_network: NetworkArchitecture
     diffusion_network: NetworkArchitecture
-    discriminator_network: NetworkArchitecture
+    critic_network: NetworkArchitecture
 
     # System dimension parameters
     state_dimension: int  # Dimension of the system state variables
@@ -80,5 +80,5 @@ class Hyperparameters:
     learning_rates: LearningRates = LearningRates(
         drift=0.001,
         diffusion=0.001,
-        discriminator=0.001,
-    )  # Learning rates for drift, diffusion, and discriminator networks
+        critic=0.001,
+    )  # Learning rates for drift, diffusion, and critic networks

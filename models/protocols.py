@@ -128,7 +128,7 @@ class NetworkProtocol(Protocol):
     """
     Protocol for neural networks used in the neural SDE framework.
 
-    Networks implementing this protocol can be used as drift, diffusion, or discriminator components in the neural SDE architecture.
+    Networks implementing this protocol can be used as drift, diffusion, or critic components in the neural SDE architecture.
     """
 
     def forward(self, inputs: Tensor) -> Tensor:
@@ -179,6 +179,6 @@ class NeuralSDEProtocol(Protocol):
         """Return the diffusion network component (may be None for deterministic phase)."""
         raise NotImplementedError()  # type: ignore
 
-    def get_discriminator_network(self) -> Optional[NetworkProtocol]:
-        """Return the discriminator network component (may be None if not using adversarial training)."""
+    def get_critic_network(self) -> Optional[NetworkProtocol]:
+        """Return the critic network component (may be None if not using adversarial training)."""
         raise NotImplementedError()  # type: ignore
