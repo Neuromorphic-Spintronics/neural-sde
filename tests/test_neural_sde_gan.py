@@ -62,9 +62,5 @@ class TestGANTraining:
         train_gan_model(
             neural_sde=neural_sde,
             real_trajectory_data=real_trajectory_data,
-            number_of_epochs=2,
-            critic_updates=2,
-            gradient_penalty_weight=10.0,
-            generator_learning_rate=1e-4,
-            critic_learning_rate=1e-4,
+            hyperparameters=hyperparams,
         )

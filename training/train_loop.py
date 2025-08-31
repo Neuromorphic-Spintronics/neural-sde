@@ -9,6 +9,7 @@ import torch
 from torch import optim
 
 from training.loss_functions import wasserstein_critic_loss
+from parameters.hyperparameters import Hyperparameters
 
 if TYPE_CHECKING:
     from models.neural_sde import NeuralSDE
@@ -18,23 +19,19 @@ if TYPE_CHECKING:
 def train_gan_model(
     neural_sde: NeuralSDE,
     real_trajectory_data: Tensor,
-    number_of_epochs: int,
-    critic_updates: int,
-    gradient_penalty_weight: float,
-    generator_learning_rate: float,
-    critic_learning_rate: float,
+    hyperparameters: Hyperparameters,
 ) -> None:
     """Train the Neural SDE GAN model."""
     optimiser_generator = optim.Adam(
         list(neural_sde.drift_net.parameters()) + list(neural_sde.diffusion_net.parameters()),
-        lr=generator_learning_rate,
+        lr=hyperparameters.learning_rates.generator,
     )
-    optimiser_critic = optim.Adam(neural_sde.critic_net.parameters(), lr=critic_learning_rate)
+    optimiser_critic = optim.Adam(neural_sde.critic_net.parameters(), lr=hyperparameters.learning_rates.critic)
 
-    for epoch in range(number_of_epochs):
-        for _ in range(critic_updates):
+    for epoch in range(hyperparameters.number_of_epochs):
+        for _ in range(hyperparameters.critic_updates):
             # Sample real trajectories
-            batch_indices = torch.randperm(real_trajectory_data.size(0))[:64]
+            batch_indices = torch.randperm(real_trajectory_data.size(0))[:hyperparameters.batch_size]
             real_trajectory_batch = real_trajectory_data[batch_indices]
 
             # Generate fake trajectories
@@ -44,7 +41,7 @@ def train_gan_model(
 
             # Critic loss
             critic_cost = wasserstein_critic_loss(
-                neural_sde.critic_net, real_trajectory_batch, fake_trajectory_batch, gradient_penalty_weight
+                neural_sde.critic_net, real_trajectory_batch, fake_trajectory_batch, hyperparameters.gradient_penalty_weight
             )
 
             # Update critic

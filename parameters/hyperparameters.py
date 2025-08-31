@@ -9,6 +9,7 @@ class LearningRates:
     drift: float
     diffusion: float
     critic: float
+    generator: float
 
     def __post_init__(self):
         """Validate learning rates."""
@@ -18,6 +19,8 @@ class LearningRates:
             raise ValueError("Diffusion learning rate must be greater than 0")
         if self.critic <= 0:
             raise ValueError("Critic learning rate must be greater than 0")
+        if self.generator <= 0:
+            raise ValueError("Generator learning rate must be greater than 0")
 
 
 @dataclass(frozen=True)
@@ -81,4 +84,9 @@ class Hyperparameters:
         drift=0.001,
         diffusion=0.001,
         critic=0.001,
+        generator=0.001,
     )  # Learning rates for drift, diffusion, and critic networks
+    number_of_epochs: int = 100
+    critic_updates: int = 5
+    gradient_penalty_weight: float = 10.0
+    batch_size: int = 64
