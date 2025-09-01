@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 from typing import Optional
 import math
-
+from config import DEVICE
+import torch
 
 @dataclass(frozen=True)
 class DuffingOscillatorParameters:
@@ -267,3 +268,11 @@ class PhysicalDuffingParameters:
             initial_velocity=initial_velocity_dim,
             initial_coloured_noise=initial_coloured_noise_dim,
         )
+
+    def external_forcing_term(self, t: float | torch.Tensor, amplitude: float, frequency: float) -> float | torch.Tensor:
+        """
+        Compute the external forcing term at a given time or batch of times.
+        This is the dimensionless version, so t is dimensionless time.
+        """
+        t_tensor = torch.as_tensor(t, device=DEVICE, dtype=torch.float32)
+        return amplitude * torch.cos(frequency * t_tensor)
