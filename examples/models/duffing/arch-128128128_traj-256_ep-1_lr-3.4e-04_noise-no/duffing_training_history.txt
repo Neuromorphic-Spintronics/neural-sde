@@ -1,0 +1,17 @@
+Training History for duffing (arch-128128128_traj-256_ep-1_lr-3.4e-04_noise-no){
+    "system": "duffing",
+    "load": null,
+    "train": true,
+    "simulate": false,
+    "initial_state": null,
+    "trajectories": 256,
+    "epochs": 1,
+    "learning_rate": 0.00034,
+    "architecture": null,
+    "no_noise": true,
+    "training_batch_size": 16,
+    "time": 25.0,
+    "timestep": 0.01,
+    "show_plots": false,
+    "save_dir": "examples"
+}Loss per Epoch:Epoch   1: 4.871324e-05

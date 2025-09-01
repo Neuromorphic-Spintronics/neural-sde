@@ -27,6 +27,7 @@ from __future__ import annotations
 import inspect
 from typing import Callable, Optional, Tuple
 import torch
+from torch import Tensor
 
 
 """
@@ -145,37 +146,20 @@ def stochastic_heun_step(
 
 
 def runge_kutta_4_step(
-    drift_function: Callable[[float, torch.Tensor], torch.Tensor],
-    current_state: torch.Tensor,
-    current_time: float,
+    drift_function: Callable[[Tensor, Tensor], Tensor],
+    current_state: Tensor,
+    current_time: float | Tensor,
     timestep: float,
-) -> torch.Tensor:
-    """
-    Single step of the fourth-order Runge-Kutta method for deterministic neural ODE training.
-
-    This implements a single step of the classical RK4 method, providing fourth-order accuracy for smooth deterministic systems. This is a deterministic-only method.
-
-    The method evaluates the drift function at four points:
-        k1 = f(t_n, X_n)
-        k2 = f(t_n + dt/2, X_n + dt*k1/2)
-        k3 = f(t_n + dt/2, X_n + dt*k2/2)
-        k4 = f(t_n + dt, X_n + dt*k3)
-        X_{n+1} = X_n + dt/6 * (k1 + 2*k2 + 2*k3 + k4)
-
-    Args:
-        drift_function: Function computing the drift term f(t, x)
-        current_state: Current state vector of shape [batch_size, state_dimension]
-        current_time: Current time value
-        timestep: Integration timestep Delta t
-
-    Returns:
-        Next state vector of shape [batch_size, state_dimension]
-
-    Example:
-        >>> drift = lambda t, x: x * (1 - x)  # Logistic growth equation
-        >>> x1 = runge_kutta_4_step(drift, x0, 0.0, 0.1)
-    """
-    raise NotImplementedError("RK4 not implemented. Please choose another integrator.")
+) -> Tensor:
+    """Perform one step of the 4th-order Runge-Kutta method for ODEs."""
+    if isinstance(current_time, (int, float)):
+        current_time = torch.tensor(current_time, device=current_state.device, dtype=current_state.dtype)
+    k1 = timestep * drift_function(current_time, current_state)
+    k2 = timestep * drift_function(current_time + timestep / 2, current_state + k1 / 2)
+    k3 = timestep * drift_function(current_time + timestep / 2, current_state + k2 / 2)
+    k4 = timestep * drift_function(current_time + timestep, current_state + k3)
+    next_state = current_state + (k1 + 2 * k2 + 2 * k3 + k4) / 6
+    return next_state
 
 
 def runge_kutta_2_step(

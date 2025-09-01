@@ -35,8 +35,7 @@ def _prepare_network_input(
     from the expected input size.
     """
     # Ensure time has column shape
-    if time.dim() == 1:
-        time = time.unsqueeze(-1)
+    time = time.view(-1, 1)
 
     batch_size = state.shape[0]
     device = state.device
@@ -48,6 +47,10 @@ def _prepare_network_input(
 
     inputs: list[Tensor] = [state, time]
     if external_inputs is not None:
+        if external_inputs.dim() == 0:
+            external_inputs = external_inputs.expand(batch_size, 1)
+        elif external_inputs.dim() == 1:
+            external_inputs = external_inputs.unsqueeze(-1)
         inputs.append(external_inputs)
     elif external_input_size > 0:
         inputs.append(torch.zeros(batch_size, external_input_size, device=device))

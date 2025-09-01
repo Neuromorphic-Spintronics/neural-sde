@@ -25,7 +25,7 @@ where the following are dimensionless parameters:
 from __future__ import annotations
 
 import torch
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Callable
 from parameters import DuffingOscillatorParameters
 from models.integrators import stochastic_heun_method
 from config import DEVICE
@@ -253,6 +253,10 @@ class DuffingOscillator:
             Coloured noise time series xi(t)
         """
         return trajectory[:, 2]
+
+    def get_drift_function(self) -> Callable[[float, torch.Tensor], torch.Tensor]:
+        """Return the drift function for the system."""
+        return self.drift_function
 
     def potential_energy(self, q: torch.Tensor) -> torch.Tensor:
         """
