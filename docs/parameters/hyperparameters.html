@@ -83,7 +83,10 @@
                                 <a class="variable" href="#LearningRates.diffusion">diffusion</a>
                         </li>
                         <li>
-                                <a class="variable" href="#LearningRates.discriminator">discriminator</a>
+                                <a class="variable" href="#LearningRates.critic">critic</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#LearningRates.generator">generator</a>
                         </li>
                 </ul>
 
@@ -128,7 +131,7 @@
                                 <a class="variable" href="#Hyperparameters.diffusion_network">diffusion_network</a>
                         </li>
                         <li>
-                                <a class="variable" href="#Hyperparameters.discriminator_network">discriminator_network</a>
+                                <a class="variable" href="#Hyperparameters.critic_network">critic_network</a>
                         </li>
                         <li>
                                 <a class="variable" href="#Hyperparameters.state_dimension">state_dimension</a>
@@ -147,6 +150,18 @@
                         </li>
                         <li>
                                 <a class="variable" href="#Hyperparameters.learning_rates">learning_rates</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#Hyperparameters.number_of_epochs">number_of_epochs</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#Hyperparameters.critic_updates">critic_updates</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#Hyperparameters.gradient_penalty_weight">gradient_penalty_weight</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#Hyperparameters.batch_size">batch_size</a>
                         </li>
                 </ul>
 
@@ -190,7 +205,7 @@ parameters<wbr>.hyperparameters    </h1>
                             <div id="LearningRates.__init__" class="classattr">
                                 <div class="attr function">
             
-        <span class="name">LearningRates</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">drift</span><span class="p">:</span> <span class="nb">float</span>, </span><span class="param"><span class="n">diffusion</span><span class="p">:</span> <span class="nb">float</span>, </span><span class="param"><span class="n">discriminator</span><span class="p">:</span> <span class="nb">float</span></span>)</span>
+        <span class="name">LearningRates</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">drift</span><span class="p">:</span> <span class="nb">float</span>, </span><span class="param"><span class="n">diffusion</span><span class="p">:</span> <span class="nb">float</span>, </span><span class="param"><span class="n">critic</span><span class="p">:</span> <span class="nb">float</span>, </span><span class="param"><span class="n">generator</span><span class="p">:</span> <span class="nb">float</span></span>)</span>
 
         
     </div>
@@ -221,13 +236,24 @@ parameters<wbr>.hyperparameters    </h1>
     
 
                             </div>
-                            <div id="LearningRates.discriminator" class="classattr">
+                            <div id="LearningRates.critic" class="classattr">
                                 <div class="attr variable">
-            <span class="name">discriminator</span><span class="annotation">: float</span>
+            <span class="name">critic</span><span class="annotation">: float</span>
 
         
     </div>
-    <a class="headerlink" href="#LearningRates.discriminator"></a>
+    <a class="headerlink" href="#LearningRates.critic"></a>
+    
+    
+
+                            </div>
+                            <div id="LearningRates.generator" class="classattr">
+                                <div class="attr variable">
+            <span class="name">generator</span><span class="annotation">: float</span>
+
+        
+    </div>
+    <a class="headerlink" href="#LearningRates.generator"></a>
     
     
 
@@ -354,7 +380,7 @@ a neural SDE/ODE model using the NeuralSDE class.</p>
                             <div id="Hyperparameters.__init__" class="classattr">
                                 <div class="attr function">
             
-        <span class="name">Hyperparameters</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">drift_network</span><span class="p">:</span> <span class="n"><a href="#NetworkArchitecture">NetworkArchitecture</a></span>,</span><span class="param">	<span class="n">diffusion_network</span><span class="p">:</span> <span class="n"><a href="#NetworkArchitecture">NetworkArchitecture</a></span>,</span><span class="param">	<span class="n">discriminator_network</span><span class="p">:</span> <span class="n"><a href="#NetworkArchitecture">NetworkArchitecture</a></span>,</span><span class="param">	<span class="n">state_dimension</span><span class="p">:</span> <span class="nb">int</span>,</span><span class="param">	<span class="n">input_dimension</span><span class="p">:</span> <span class="nb">int</span>,</span><span class="param">	<span class="n">hidden_variables</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>,</span><span class="param">	<span class="n">external_hidden_variables</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>,</span><span class="param">	<span class="n">timestep</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.01</span>,</span><span class="param">	<span class="n">learning_rates</span><span class="p">:</span> <span class="n"><a href="#LearningRates">LearningRates</a></span> <span class="o">=</span> <span class="n">LearningRates</span><span class="p">(</span><span class="n">drift</span><span class="o">=</span><span class="mf">0.001</span><span class="p">,</span> <span class="n">diffusion</span><span class="o">=</span><span class="mf">0.001</span><span class="p">,</span> <span class="n">discriminator</span><span class="o">=</span><span class="mf">0.001</span><span class="p">)</span></span>)</span>
+        <span class="name">Hyperparameters</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">drift_network</span><span class="p">:</span> <span class="n"><a href="#NetworkArchitecture">NetworkArchitecture</a></span>,</span><span class="param">	<span class="n">diffusion_network</span><span class="p">:</span> <span class="n"><a href="#NetworkArchitecture">NetworkArchitecture</a></span>,</span><span class="param">	<span class="n">critic_network</span><span class="p">:</span> <span class="n"><a href="#NetworkArchitecture">NetworkArchitecture</a></span>,</span><span class="param">	<span class="n">state_dimension</span><span class="p">:</span> <span class="nb">int</span>,</span><span class="param">	<span class="n">input_dimension</span><span class="p">:</span> <span class="nb">int</span>,</span><span class="param">	<span class="n">hidden_variables</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>,</span><span class="param">	<span class="n">external_hidden_variables</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>,</span><span class="param">	<span class="n">timestep</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.01</span>,</span><span class="param">	<span class="n">learning_rates</span><span class="p">:</span> <span class="n"><a href="#LearningRates">LearningRates</a></span> <span class="o">=</span> <span class="n">LearningRates</span><span class="p">(</span><span class="n">drift</span><span class="o">=</span><span class="mf">0.001</span><span class="p">,</span> <span class="n">diffusion</span><span class="o">=</span><span class="mf">0.001</span><span class="p">,</span> <span class="n">critic</span><span class="o">=</span><span class="mf">0.001</span><span class="p">,</span> <span class="n">generator</span><span class="o">=</span><span class="mf">0.001</span><span class="p">)</span>,</span><span class="param">	<span class="n">number_of_epochs</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">100</span>,</span><span class="param">	<span class="n">critic_updates</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">5</span>,</span><span class="param">	<span class="n">gradient_penalty_weight</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">10.0</span>,</span><span class="param">	<span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">64</span></span>)</span>
 
         
     </div>
@@ -385,13 +411,13 @@ a neural SDE/ODE model using the NeuralSDE class.</p>
     
 
                             </div>
-                            <div id="Hyperparameters.discriminator_network" class="classattr">
+                            <div id="Hyperparameters.critic_network" class="classattr">
                                 <div class="attr variable">
-            <span class="name">discriminator_network</span><span class="annotation">: <a href="#NetworkArchitecture">NetworkArchitecture</a></span>
+            <span class="name">critic_network</span><span class="annotation">: <a href="#NetworkArchitecture">NetworkArchitecture</a></span>
 
         
     </div>
-    <a class="headerlink" href="#Hyperparameters.discriminator_network"></a>
+    <a class="headerlink" href="#Hyperparameters.critic_network"></a>
     
     
 
@@ -457,11 +483,59 @@ a neural SDE/ODE model using the NeuralSDE class.</p>
                             <div id="Hyperparameters.learning_rates" class="classattr">
                                 <div class="attr variable">
             <span class="name">learning_rates</span><span class="annotation">: <a href="#LearningRates">LearningRates</a></span>        =
-<span class="default_value">LearningRates(drift=0.001, diffusion=0.001, discriminator=0.001)</span>
+<span class="default_value">LearningRates(drift=0.001, diffusion=0.001, critic=0.001, generator=0.001)</span>
 
         
     </div>
     <a class="headerlink" href="#Hyperparameters.learning_rates"></a>
+    
+    
+
+                            </div>
+                            <div id="Hyperparameters.number_of_epochs" class="classattr">
+                                <div class="attr variable">
+            <span class="name">number_of_epochs</span><span class="annotation">: int</span>        =
+<span class="default_value">100</span>
+
+        
+    </div>
+    <a class="headerlink" href="#Hyperparameters.number_of_epochs"></a>
+    
+    
+
+                            </div>
+                            <div id="Hyperparameters.critic_updates" class="classattr">
+                                <div class="attr variable">
+            <span class="name">critic_updates</span><span class="annotation">: int</span>        =
+<span class="default_value">5</span>
+
+        
+    </div>
+    <a class="headerlink" href="#Hyperparameters.critic_updates"></a>
+    
+    
+
+                            </div>
+                            <div id="Hyperparameters.gradient_penalty_weight" class="classattr">
+                                <div class="attr variable">
+            <span class="name">gradient_penalty_weight</span><span class="annotation">: float</span>        =
+<span class="default_value">10.0</span>
+
+        
+    </div>
+    <a class="headerlink" href="#Hyperparameters.gradient_penalty_weight"></a>
+    
+    
+
+                            </div>
+                            <div id="Hyperparameters.batch_size" class="classattr">
+                                <div class="attr variable">
+            <span class="name">batch_size</span><span class="annotation">: int</span>        =
+<span class="default_value">64</span>
+
+        
+    </div>
+    <a class="headerlink" href="#Hyperparameters.batch_size"></a>
     
     
 
