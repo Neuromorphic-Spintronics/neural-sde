@@ -135,7 +135,7 @@
                                 <a class="function" href="#NeuralSDEProtocol.get_diffusion_network">get_diffusion_network</a>
                         </li>
                         <li>
-                                <a class="function" href="#NeuralSDEProtocol.get_discriminator_network">get_discriminator_network</a>
+                                <a class="function" href="#NeuralSDEProtocol.get_critic_network">get_critic_network</a>
                         </li>
                 </ul>
 
@@ -345,7 +345,7 @@
     
             <div class="docstring"><p>Protocol for neural networks used in the neural SDE framework.</p>
 
-<p>Networks implementing this protocol can be used as drift, diffusion, or discriminator components in the neural SDE architecture.</p>
+<p>Networks implementing this protocol can be used as drift, diffusion, or critic components in the neural SDE architecture.</p>
 </div>
 
 
@@ -491,17 +491,17 @@
 
 
                             </div>
-                            <div id="NeuralSDEProtocol.get_discriminator_network" class="classattr">
+                            <div id="NeuralSDEProtocol.get_critic_network" class="classattr">
                                 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">get_discriminator_network</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span></span><span class="return-annotation">) -> <span class="n">Optional</span><span class="p">[</span><span class="n"><a href="#NetworkProtocol">NetworkProtocol</a></span><span class="p">]</span>:</span></span>
+        <span class="name">get_critic_network</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span></span><span class="return-annotation">) -> <span class="n">Optional</span><span class="p">[</span><span class="n"><a href="#NetworkProtocol">NetworkProtocol</a></span><span class="p">]</span>:</span></span>
 
         
     </div>
-    <a class="headerlink" href="#NeuralSDEProtocol.get_discriminator_network"></a>
+    <a class="headerlink" href="#NeuralSDEProtocol.get_critic_network"></a>
     
-            <div class="docstring"><p>Return the discriminator network component (may be None if not using adversarial training).</p>
+            <div class="docstring"><p>Return the critic network component (may be None if not using adversarial training).</p>
 </div>
 
 

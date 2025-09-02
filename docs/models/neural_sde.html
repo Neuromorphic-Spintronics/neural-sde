@@ -170,14 +170,14 @@
 
                         <div class="docstring"><p>Neural Stochastic Differential Equation (Neural SDE) model with adversarial training.</p>
 
-<p>This module implements a neural SDE framework that can learn the dynamics of stochastic systems through a combination of neural networks representing drift and diffusion terms, along with adversarial training using a discriminator.</p>
+<p>This module implements a neural SDE framework that can learn the dynamics of stochastic systems through a combination of neural networks representing drift and diffusion terms, along with adversarial training using a critic.</p>
 
 <p>Key components:</p>
 
 <ul>
 <li><code><a href="#DriftNet">DriftNet</a></code>: Neural network approximating deterministic dynamics mu(x, t, u)</li>
 <li><code><a href="#DiffusionNet">DiffusionNet</a></code>: Neural network approximating stochastic dynamics sigma(x, t, u)</li>
-<li><code>DiscriminatorNet</code>: Critic network for adversarial training</li>
+<li><code><a href="#CriticNet">CriticNet</a></code>: Critic network for adversarial training</li>
 <li><code><a href="#NeuralSDE">NeuralSDE</a></code>: Main class combining networks with SDE integration for simulation</li>
 </ul>
 </div>
@@ -559,8 +559,6 @@ architecture</li>
 <li>Second-order Runge-Kutta (RK2) method for neural ODEs (when diffusion_net is None)</li>
 </ul>
 
-<p><strong>Important Constraint</strong>: For stochastic systems (when diffusion_net is present), a discriminator network is required for adversarial training. For deterministic systems, the discriminator is optional.</p>
-
 <h6 id="arguments">Arguments:</h6>
 
 <ul>
@@ -709,7 +707,7 @@ architecture</li>
     
             <div class="docstring"><p>Simulate neural SDE trajectory given external inputs.</p>
 
-<p>Steps through time using the configured integration method, with the neural networks providing drift and diffusion terms at each step. Gradients are retained for training via backpropagation through time (as per original paper by Manneschi et al.) or an adjoint method (to be implemented).</p>
+<p>Steps through time using the configured integration method, with the neural networks providing drift and diffusion terms at each step. Gradients are retained for training via backpropagation through time (as per Manneschi et al.) or an adjoint method (to be implemented).</p>
 
 <h6 id="arguments">Arguments:</h6>
 
@@ -768,7 +766,7 @@ architecture</li>
                                     <div><dt><a href="protocols.html#NeuralSDEProtocol">models.protocols.NeuralSDEProtocol</a></dt>
                                 <dd id="NeuralSDE.get_drift_network" class="function"><a href="protocols.html#NeuralSDEProtocol.get_drift_network">get_drift_network</a></dd>
                 <dd id="NeuralSDE.get_diffusion_network" class="function"><a href="protocols.html#NeuralSDEProtocol.get_diffusion_network">get_diffusion_network</a></dd>
-                <dd id="NeuralSDE.get_discriminator_network" class="function"><a href="protocols.html#NeuralSDEProtocol.get_discriminator_network">get_discriminator_network</a></dd>
+                <dd id="NeuralSDE.get_critic_network" class="function"><a href="protocols.html#NeuralSDEProtocol.get_critic_network">get_critic_network</a></dd>
 
             </div>
                                 </dl>
