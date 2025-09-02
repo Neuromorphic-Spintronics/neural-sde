@@ -3,12 +3,13 @@ name = "neural-sde"
 version = "0.1.0"
 description = "Command line tool to apply the Neural SDE framework to any time series data."
 readme = "README.md"
-requires-python = ">=3.13.5"
+requires-python = ">=3.13.3"
 dependencies = [
     "marimo>=0.14.13",
     "matplotlib>=3.10.3",
     "numpy>=2.3.1",
     "pdoc>=15.0.4",
+    "pre-commit>=4.3.0",
     "pyrefly>=0.24.2",
     "pytest>=8.4.1",
     "pyyaml>=6.0.2",
