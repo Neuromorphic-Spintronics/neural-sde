@@ -1,3 +1,6 @@
+# WGAN-GP algorithm
+
+``` latex
 \begin{algorithm}[H]
     \caption{Training loop for critic GAN with gradient penalty (non-batched)}
     \begin{algorithmic}[1]
@@ -26,3 +29,4 @@
     \EndFor
     \end{algorithmic}
     \end{algorithm}
+```
