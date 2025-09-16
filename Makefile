@@ -3,15 +3,8 @@
 # Generate API docs with pdoc, excluding the legacy/ folder and the unimplemented leaky integrator.
 docs:
 	uv run pdoc \
-		./models \
-		./systems \
-		./parameters/duffing_oscillator.py \
-		./parameters/hyperparameters.py \
-		./examples \
-		./training \
-		./utils \
-		./config.py \
-		./main.py \
+		./examples/ \
+		./neural_dynamics/ \
 		--output-dir docs \
 		--search \
 		--math \
