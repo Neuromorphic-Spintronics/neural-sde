@@ -231,7 +231,9 @@ class FeedForwardNetwork(nn.Sequential, NetworkProtocol):
             device: Computation device
         """
 
+        self.architecture = architecture
         self.input_size = architecture.input_size
+        self.output_size = architecture.output_size
         self.layer_sizes = architecture.layer_sizes
 
         layers = self._build_layers(activation, final_activation)
@@ -408,7 +410,6 @@ class DriftNet(FeedForwardNetwork):
             device=device,
         )
 
-    @torch.jit.script_method
     def compute_drift(
         self, state: Tensor, time: Tensor, external_inputs: Optional[Tensor] = None
     ) -> Tensor:

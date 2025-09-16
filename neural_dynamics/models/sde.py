@@ -1,81 +1,399 @@
 from __future__ import annotations
-import torch
-from torch import nn, optim, Tensor
-from typing import Callable, Optional, Tuple, List
-from tqdm import tqdm
 import math
+from typing import Any, Callable, List, Optional, Tuple, overload
 
-from .base import FeedForwardNetwork, DriftNet
-from neural_dynamics.core.hyperparameters import NetworkArchitecture, Hyperparameters
-from neural_dynamics.core.integrators import integrate_trajectory_with_step_method, stochastic_heun_step
+import torch
+from torch import Tensor, nn, optim
+from tqdm import tqdm
+
+from .base import DriftNet, FeedForwardNetwork, count_network_parameters
+from neural_dynamics.core.hyperparameters import Hyperparameters, NetworkArchitecture
 from config import DEVICE
 
 class DiffusionNet(FeedForwardNetwork):
-    """
-    Neural network approximating the diffusion term sigma(x, t, u) in the neural SDE.
-    """
+    """Neural network approximating the diffusion term sigma(x, t, u)."""
+
     def __init__(
         self,
         architecture: NetworkArchitecture,
+        *,
+        state_dimension: int,
+        noise_dimension: int,
         activation: Callable[[], nn.Module] = nn.Tanh,
         device: torch.device = DEVICE,
     ) -> None:
-        super().__init__(architecture, activation, device=device)
+        """Initialise the diffusion network with dimensionality checks."""
+        if state_dimension <= 0:
+            raise ValueError("state_dimension must be a positive integer")
+        if noise_dimension <= 0:
+            raise ValueError("noise_dimension must be a positive integer")
 
-    @torch.jit.script_method
+        expected_output = state_dimension * noise_dimension
+        if architecture.output_size != expected_output:
+            raise ValueError(
+                "Diffusion network output size must equal "
+                "state_dimension * noise_dimension"
+            )
+
+        super().__init__(architecture, activation, device=device)
+        self.state_dimension = state_dimension
+        self.noise_dimension = noise_dimension
+
     def compute_diffusion(
         self, state: Tensor, time: Tensor, external_inputs: Optional[Tensor] = None
     ) -> Tensor:
+        """Compute diffusion matrices for given state, time, and inputs."""
         network_input = self._prepare_network_input(
             state=state,
             time=time,
             external_inputs=external_inputs,
             expected_input_size=self.input_size,
         )
-        return self.forward(network_input)
+        batch_size = state.shape[0]
+        diffusion_flat = super().forward(network_input)
+        return diffusion_flat.view(batch_size, self.state_dimension, self.noise_dimension)
 
 class CriticNet(FeedForwardNetwork):
-    """
-    Neural network that scores trajectories for the WGAN-GP critic.
-    """
+    """Neural network that scores trajectories for the WGAN-GP critic."""
+
     def __init__(
         self,
         architecture: NetworkArchitecture,
+        trajectory_length: int,
+        *,
         activation: Callable[[], nn.Module] = nn.Tanh,
         device: torch.device = DEVICE,
     ) -> None:
+        """Initialise the critic with trajectory-specific validation.
+
+        Args:
+            architecture: Network architecture describing the critic network.
+            trajectory_length: Number of timesteps in each trajectory segment.
+            activation: Factory returning the activation module used between layers.
+            device: Device where the network parameters are stored.
+
+        Raises:
+            ValueError: If the provided configuration is inconsistent.
+        """
+
+        if trajectory_length <= 0:
+            raise ValueError("trajectory_length must be a positive integer")
+
+        if architecture.input_size % trajectory_length != 0:
+            raise ValueError(
+                "architecture.input_size must be divisible by trajectory_length"
+            )
+
+        self.architecture = architecture
+        self.trajectory_length = trajectory_length
+        self._state_dimension = architecture.input_size // trajectory_length
+
         super().__init__(architecture, activation, device=device)
 
+    def score(self, trajectory_segment: Tensor) -> Tensor:
+        """Score a batch of trajectories.
+
+        Args:
+            trajectory_segment: Tensor of shape ``[batch, time, state_dim]``.
+
+        Returns:
+            Critic scores with shape ``[batch, 1]``.
+
+        Raises:
+            ValueError: If the input tensor shape does not match configuration.
+        """
+
+        if trajectory_segment.ndim != 3:
+            raise ValueError("trajectory_segment must be a 3D tensor")
+
+        batch_size, trajectory_length, state_dim = trajectory_segment.shape
+
+        if trajectory_length != self.trajectory_length:
+            raise ValueError(
+                "trajectory length does not match expected value "
+                f"{self.trajectory_length}"
+            )
+
+        if state_dim != self._state_dimension:
+            raise ValueError(
+                "state dimension does not match expected value "
+                f"{self._state_dimension}"
+            )
+
+        critic_input = trajectory_segment.reshape(batch_size, -1)
+        return super().forward(critic_input)
+
 class NeuralSDE(nn.Module):
-    def __init__(self, drift_net: DriftNet, diffusion_net: DiffusionNet, hyperparameters: Hyperparameters):
+    """Neural SDE model composed of drift, diffusion, and critic networks."""
+
+    def __init__(
+        self,
+        drift_or_hyperparameters: DriftNet | Hyperparameters,
+        diffusion_net: DiffusionNet | None = None,
+        hyperparameters: Hyperparameters | None = None,
+        *,
+        critic_net: CriticNet | None = None,
+    ) -> None:
         super().__init__()
-        self.drift_net = drift_net
-        self.diffusion_net = diffusion_net
-        self.hyperparameters = hyperparameters
 
-    def forward(self, initial_state: Tensor, t_span: Tensor) -> Tensor:
-        initial_time = t_span[0].item()
-        final_time = t_span[-1].item()
-        timestep = self.hyperparameters.timestep
+        if isinstance(drift_or_hyperparameters, Hyperparameters):
+            hyperparams = drift_or_hyperparameters
+            self.hyperparameters = hyperparams
+            self.state_dimension = hyperparams.state_dimension
+            self.input_dimension = hyperparams.input_dimension
+            self.timestep = hyperparams.timestep
 
-        _, trajectory = integrate_trajectory_with_step_method(
-            step_integrator=stochastic_heun_step,
-            drift_function=self.drift_function,
-            diffusion_function=self.diffusion_function,
-            initial_state=initial_state.to(DEVICE),
-            initial_time=initial_time,
-            final_time=final_time,
-            timestep=timestep,
+            self.drift_net = DriftNet(hyperparams.drift_network)
+
+            diffusion_arch = hyperparams.diffusion_network
+            noise_dimension = self._infer_noise_dimension(
+                diffusion_arch, self.state_dimension
+            )
+            self.noise_dimension = noise_dimension
+            self.diffusion_net = (
+                None
+                if diffusion_arch is None
+                else DiffusionNet(
+                    diffusion_arch,
+                    state_dimension=self.state_dimension,
+                    noise_dimension=noise_dimension,
+                )
+            )
+
+            critic_arch = hyperparams.critic_network
+            if self.diffusion_net is not None and critic_arch is None:
+                raise ValueError("Critic network is required for stochastic Neural SDEs")
+
+            trajectory_length = self._infer_trajectory_length(
+                critic_arch, self.state_dimension
+            )
+            self.critic_net = (
+                None
+                if critic_arch is None
+                else CriticNet(critic_arch, trajectory_length)
+            )
+            self.trajectory_length = trajectory_length
+        else:
+            if diffusion_net is None:
+                raise ValueError(
+                    "diffusion_net must be provided when supplying explicit networks"
+                )
+            if hyperparameters is None:
+                raise ValueError(
+                    "hyperparameters must be provided when supplying explicit networks"
+                )
+
+            self.hyperparameters = hyperparameters
+            self.state_dimension = hyperparameters.state_dimension
+            self.input_dimension = hyperparameters.input_dimension
+            self.timestep = hyperparameters.timestep
+
+            self.drift_net = drift_or_hyperparameters
+            self.diffusion_net = diffusion_net
+            self.noise_dimension = diffusion_net.noise_dimension
+
+            if critic_net is not None:
+                self.critic_net = critic_net
+                self.trajectory_length = critic_net.trajectory_length
+            else:
+                critic_arch = hyperparameters.critic_network
+                trajectory_length = self._infer_trajectory_length(
+                    critic_arch, self.state_dimension
+                )
+                self.critic_net = (
+                    None
+                    if critic_arch is None
+                    else CriticNet(critic_arch, trajectory_length)
+                )
+                self.trajectory_length = trajectory_length
+
+        self._sqrt_timestep = math.sqrt(max(self.timestep, 1e-12))
+
+    @staticmethod
+    def _infer_noise_dimension(
+        architecture: NetworkArchitecture | None, state_dimension: int
+    ) -> int:
+        if architecture is None:
+            return 0
+        if architecture.output_size % state_dimension != 0:
+            raise ValueError(
+                "Diffusion network output size is not divisible by state dimension"
+            )
+        return architecture.output_size // state_dimension
+
+    @staticmethod
+    def _infer_trajectory_length(
+        architecture: NetworkArchitecture | None, state_dimension: int
+    ) -> int | None:
+        if architecture is None:
+            return None
+        if architecture.input_size % state_dimension != 0:
+            raise ValueError(
+                "Critic network input size is not divisible by state dimension"
+            )
+        return architecture.input_size // state_dimension
+
+    @overload
+    def forward(self, initial_state: Tensor, time_grid: Tensor) -> Tensor:  # type: ignore[override]
+        ...
+
+    @overload
+    def forward(
+        self,
+        external_inputs: Tensor,
+        *,
+        initial_state: Tensor,
+        initial_time: float = 0.0,
+    ) -> Tensor:
+        ...
+
+    def forward(self, *args: Any, **kwargs: Any) -> Tensor:  # type: ignore[override]
+        if len(args) == 2 and not kwargs:
+            initial_state, time_grid = args
+            return self._simulate_with_time_grid(initial_state, time_grid)
+
+        if len(args) == 1 and "initial_state" in kwargs:
+            external_inputs = args[0]
+            initial_state = kwargs["initial_state"]
+            initial_time = float(kwargs.get("initial_time", 0.0))
+            return self._simulate_with_inputs(
+                external_inputs, initial_state, initial_time
+            )
+
+        raise TypeError(
+            "forward expects either (initial_state, time_grid) or "
+            "(external_inputs, *, initial_state, initial_time)"
         )
+
+    def _simulate_with_time_grid(self, initial_state: Tensor, time_grid: Tensor) -> Tensor:
+        if time_grid.ndim != 1:
+            raise ValueError("time_grid must be a 1D tensor")
+
+        device = next(self.parameters()).device
+        dtype = initial_state.dtype
+
+        state = initial_state.to(device=device, dtype=dtype)
+        if state.ndim == 1:
+            state = state.unsqueeze(0)
+
+        batch_size = state.shape[0]
+        trajectory = torch.empty(
+            time_grid.shape[0], batch_size, self.state_dimension, device=device, dtype=dtype
+        )
+        trajectory[0] = state
+
+        for idx in range(1, time_grid.shape[0]):
+            previous_time = float(time_grid[idx - 1].item())
+            dt = float(time_grid[idx].item() - time_grid[idx - 1].item())
+            time_tensor = torch.full((batch_size, 1), previous_time, device=device, dtype=dtype)
+
+            drift = self.drift_net.compute_drift(state, time_tensor, external_inputs=None)
+            next_state = state + drift * dt
+
+            if self.diffusion_net is not None and self.noise_dimension > 0:
+                diffusion = self.diffusion_net.compute_diffusion(
+                    state, time_tensor, external_inputs=None
+                )
+                noise = torch.randn(
+                    batch_size, self.noise_dimension, device=device, dtype=dtype
+                )
+                diffusion_update = torch.bmm(diffusion, noise.unsqueeze(-1)).squeeze(-1)
+                next_state = next_state + diffusion_update * math.sqrt(max(dt, 1e-12))
+
+            trajectory[idx] = next_state
+            state = next_state
+
         return trajectory
 
-    def drift_function(self, t: float, state: Tensor) -> Tensor:
-        time_tensor = torch.full((state.shape[0],), t, device=state.device)
-        return self.drift_net.compute_drift(state, time_tensor)
+    def _simulate_with_inputs(
+        self, external_inputs: Tensor, initial_state: Tensor, initial_time: float
+    ) -> Tensor:
+        if external_inputs.ndim != 3:
+            raise ValueError("external_inputs must have shape [batch, inputs, time]")
 
-    def diffusion_function(self, t: float, state: Tensor) -> Tensor:
-        time_tensor = torch.full((state.shape[0],), t, device=state.device)
-        return self.diffusion_net.compute_diffusion(state, time_tensor)
+        batch_size, input_dim, num_timesteps = external_inputs.shape
+        if input_dim != self.input_dimension:
+            raise ValueError(
+                "External input dimension "
+                f"{external_inputs.shape[1]} does not match configured input_dimension "
+                f"{self.input_dimension}"
+            )
+
+        state = initial_state
+        if state.ndim == 1:
+            state = state.unsqueeze(0)
+        if state.shape[0] != batch_size:
+            raise ValueError(
+                "Initial state batch size does not match external input batch size"
+            )
+        if state.shape[1] != self.state_dimension:
+            raise ValueError(
+                "Initial state dimension "
+                f"{state.shape[1]} does not match configured state_dimension "
+                f"{self.state_dimension}"
+            )
+
+        device = next(self.parameters()).device
+        dtype = state.dtype
+
+        state = state.to(device=device, dtype=dtype)
+        inputs = external_inputs.to(device=device, dtype=dtype)
+
+        trajectories = torch.empty(
+            batch_size,
+            self.state_dimension,
+            num_timesteps,
+            device=device,
+            dtype=dtype,
+        )
+
+        current_state = state
+        current_time = initial_time
+        for step in range(num_timesteps):
+            time_tensor = torch.full(
+                (batch_size, 1), current_time, device=device, dtype=dtype
+            )
+            step_inputs = inputs[:, :, step]
+
+            drift = self.drift_net.compute_drift(current_state, time_tensor, step_inputs)
+            next_state = current_state + drift * self.timestep
+
+            if self.diffusion_net is not None and self.noise_dimension > 0:
+                diffusion = self.diffusion_net.compute_diffusion(
+                    current_state, time_tensor, step_inputs
+                )
+                noise = torch.randn(
+                    batch_size, self.noise_dimension, device=device, dtype=dtype
+                )
+                diffusion_update = torch.bmm(diffusion, noise.unsqueeze(-1)).squeeze(-1)
+                next_state = next_state + diffusion_update * self._sqrt_timestep
+
+            trajectories[:, :, step] = next_state
+            current_state = next_state
+            current_time += self.timestep
+
+        return trajectories
+
+    def count_total_parameters(self) -> dict[str, int]:
+        """Return the number of trainable parameters per network component."""
+        drift_params = count_network_parameters(self.drift_net)
+        diffusion_params = (
+            count_network_parameters(self.diffusion_net)
+            if self.diffusion_net is not None
+            else 0
+        )
+        critic_params = (
+            count_network_parameters(self.critic_net)
+            if self.critic_net is not None
+            else 0
+        )
+        total = drift_params + diffusion_params + critic_params
+        return {
+            "drift_net": drift_params,
+            "diffusion_net": diffusion_params,
+            "critic_net": critic_params,
+            "total": total,
+        }
 
 # ---------------------------------------------------------------------------- #
 #                           WGAN-GP Training Logic                             #

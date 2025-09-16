@@ -1,3 +1,5 @@
+london_smart_meter.py
+
 .vscode/
 
 /data/
@@ -217,4 +219,4 @@ Documentation/main.tex
 
 # Experiments not to be committed yet
 nr-experiment.py
-cleaned_energy_data
+# cleaned_energy_data
