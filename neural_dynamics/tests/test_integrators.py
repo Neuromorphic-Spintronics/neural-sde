@@ -5,7 +5,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 import torch
-from models.integrators import (
+from neural_dynamics.core.integrators import (
     euler_maruyama_step,
     stochastic_heun_step,
     euler_maruyama,
@@ -18,9 +18,6 @@ from models.integrators import (
     matrix_stochastic_heun_step,
     auto_select_matrix_integrator,
 )
-from utils import plotting
-
-COLOURS = plotting.COLOURS
 
 
 # Set-up the physical problem

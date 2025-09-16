@@ -17,14 +17,12 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import logging
 import os
-import sys
 import json
 import math
 
-sys.path.append(".")
-from parameters import PhysicalDuffingParameters
-from systems.duffing_oscillator import DuffingOscillator
-from utils.plotting import set_default_plotting_style, style_axis_clean, COLOURS
+from examples.parameters.duffing_oscillator import PhysicalDuffingParameters
+from examples.systems.duffing_oscillator import DuffingOscillator
+from neural_dynamics.core.utils import set_default_plotting_style, style_axis_clean, COLOURS
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -207,8 +205,8 @@ class TestStochasticDuffingOscillator:
         assert osc.get_state_dimension() == 3, "State dimension should be 3"
 
         initial_state = osc.get_initial_state()
-        assert initial_state.shape == torch.Size([3]), (
-            "Initial state should have 3 components"
+        assert initial_state.shape == torch.Size([1, 3]), (
+            "Initial state should be batched with 3 components"
         )
 
         logger.info("State vector structure test passed")
@@ -281,14 +279,16 @@ class TestStochasticDuffingOscillator:
         time_grid, trajectory = osc.integrate_sde()
 
         assert time_grid.shape[0] == osc.num_steps + 1, "Time grid length incorrect"
-        assert trajectory.shape == (osc.num_steps + 1, 3), "Trajectory shape incorrect"
+        assert trajectory.shape == (1, osc.num_steps + 1, 3), "Trajectory shape incorrect"
 
         assert not torch.any(torch.isnan(trajectory)), "Trajectory contains NaN"
         assert not torch.any(torch.isinf(trajectory)), (
             "Trajectory contains infinite values"
         )
 
-        xi_trajectory = trajectory[:, 2]
+        trajectory_single = trajectory.squeeze(0)
+
+        xi_trajectory = trajectory_single[:, 2]
         # Note: xi will decay towards zero due to -xi/t_correl term
         assert torch.all(torch.abs(xi_trajectory) < 1e-10), (
             "Coloured noise should remain near zero in deterministic case"
@@ -305,14 +305,16 @@ class TestStochasticDuffingOscillator:
         time_grid, trajectory = osc.integrate_sde()
 
         assert time_grid.shape[0] == osc.num_steps + 1, "Time grid length incorrect"
-        assert trajectory.shape == (osc.num_steps + 1, 3), "Trajectory shape incorrect"
+        assert trajectory.shape == (1, osc.num_steps + 1, 3), "Trajectory shape incorrect"
 
         assert not torch.any(torch.isnan(trajectory)), "Trajectory contains NaN"
         assert not torch.any(torch.isinf(trajectory)), (
             "Trajectory contains infinite values"
         )
 
-        xi_trajectory = trajectory[:, 2]
+        trajectory_single = trajectory.squeeze(0)
+
+        xi_trajectory = trajectory_single[:, 2]
         xi_variance = torch.var(xi_trajectory)
         assert xi_variance > 1e-6, (
             "Coloured noise should show fluctuations in stochastic case"
@@ -389,6 +391,8 @@ class TestEnergyConservationAndPhysics:
 
         time_grid, trajectory = osc.integrate_sde()
         q, v = osc.get_position_velocity(trajectory)
+        q = q.squeeze(0)
+        v = v.squeeze(0)
 
         total_energy = osc.total_energy(q, v)
 
@@ -436,8 +440,8 @@ class TestPlottingAndVisualisation:
         time_grid, trajectory = osc.integrate_sde()
 
         q, v = osc.get_position_velocity(trajectory)
-        q_np = q.cpu().numpy()
-        v_np = v.cpu().numpy()
+        q_np = q.squeeze(0).cpu().numpy()
+        v_np = v.squeeze(0).cpu().numpy()
 
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 
@@ -491,7 +495,9 @@ class TestPlottingAndVisualisation:
         time_grid, trajectory = osc.integrate_sde()
 
         q, v = osc.get_position_velocity(trajectory)
-        xi = trajectory[:, 2]  # Coloured noise
+        q = q.squeeze(0)
+        v = v.squeeze(0)
+        xi = trajectory[0, :, 2]
 
         t_np = time_grid.cpu().numpy()
         xi_np = xi.cpu().numpy()

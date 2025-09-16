@@ -75,7 +75,13 @@
                                 <a class="function" href="#FeedForwardNetwork.__init__">FeedForwardNetwork</a>
                         </li>
                         <li>
+                                <a class="variable" href="#FeedForwardNetwork.architecture">architecture</a>
+                        </li>
+                        <li>
                                 <a class="variable" href="#FeedForwardNetwork.input_size">input_size</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#FeedForwardNetwork.output_size">output_size</a>
                         </li>
                         <li>
                                 <a class="variable" href="#FeedForwardNetwork.layer_sizes">layer_sizes</a>
@@ -93,7 +99,7 @@
                                 <a class="function" href="#DriftNet.__init__">DriftNet</a>
                         </li>
                         <li>
-                                <a class="variable" href="#DriftNet.compute_drift">compute_drift</a>
+                                <a class="function" href="#DriftNet.compute_drift">compute_drift</a>
                         </li>
                 </ul>
 
@@ -126,7 +132,13 @@
                                 <a class="function" href="#DiffusionNet.__init__">DiffusionNet</a>
                         </li>
                         <li>
-                                <a class="variable" href="#DiffusionNet.compute_diffusion">compute_diffusion</a>
+                                <a class="variable" href="#DiffusionNet.state_dimension">state_dimension</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#DiffusionNet.noise_dimension">noise_dimension</a>
+                        </li>
+                        <li>
+                                <a class="function" href="#DiffusionNet.compute_diffusion">compute_diffusion</a>
                         </li>
                 </ul>
 
@@ -136,6 +148,15 @@
                             <ul class="memberlist">
                         <li>
                                 <a class="function" href="#CriticNet.__init__">CriticNet</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#CriticNet.architecture">architecture</a>
+                        </li>
+                        <li>
+                                <a class="variable" href="#CriticNet.trajectory_length">trajectory_length</a>
+                        </li>
+                        <li>
+                                <a class="function" href="#CriticNet.score">score</a>
                         </li>
                 </ul>
 
@@ -147,22 +168,10 @@
                                 <a class="function" href="#NeuralSDE.__init__">NeuralSDE</a>
                         </li>
                         <li>
-                                <a class="variable" href="#NeuralSDE.drift_net">drift_net</a>
-                        </li>
-                        <li>
-                                <a class="variable" href="#NeuralSDE.diffusion_net">diffusion_net</a>
-                        </li>
-                        <li>
-                                <a class="variable" href="#NeuralSDE.hyperparameters">hyperparameters</a>
-                        </li>
-                        <li>
                                 <a class="function" href="#NeuralSDE.forward">forward</a>
                         </li>
                         <li>
-                                <a class="function" href="#NeuralSDE.drift_function">drift_function</a>
-                        </li>
-                        <li>
-                                <a class="function" href="#NeuralSDE.diffusion_function">diffusion_function</a>
+                                <a class="function" href="#NeuralSDE.count_total_parameters">count_total_parameters</a>
                         </li>
                 </ul>
 
@@ -251,6 +260,17 @@ Should return a new activation instance when called.</li>
 
 
                             </div>
+                            <div id="FeedForwardNetwork.architecture" class="classattr">
+                                <div class="attr variable">
+            <span class="name">architecture</span>
+
+        
+    </div>
+    <a class="headerlink" href="#FeedForwardNetwork.architecture"></a>
+    
+    
+
+                            </div>
                             <div id="FeedForwardNetwork.input_size" class="classattr">
                                 <div class="attr variable">
             <span class="name">input_size</span>
@@ -258,6 +278,17 @@ Should return a new activation instance when called.</li>
         
     </div>
     <a class="headerlink" href="#FeedForwardNetwork.input_size"></a>
+    
+    
+
+                            </div>
+                            <div id="FeedForwardNetwork.output_size" class="classattr">
+                                <div class="attr variable">
+            <span class="name">output_size</span>
+
+        
+    </div>
+    <a class="headerlink" href="#FeedForwardNetwork.output_size"></a>
     
     
 
@@ -336,10 +367,10 @@ Should return a new activation instance when called.</li>
 
                             </div>
                             <div id="DriftNet.compute_drift" class="classattr">
-                                <div class="attr variable">
-            <span class="name">compute_drift</span>        =
-<input id="DriftNet.compute_drift-view-value" class="view-value-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
-            <label class="view-value-button pdoc-button" for="DriftNet.compute_drift-view-value"></label><span class="default_value">ScriptMethodStub(resolution_callback=&lt;function createResolutionCallbackFromEnv.&lt;locals&gt;.&lt;lambda&gt;&gt;, def_=&lt;torch._C._jit_tree_views.Def object&gt;, original_method=&lt;function <a href="#DriftNet.compute_drift">DriftNet.compute_drift</a>&gt;)</span>
+                                <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">compute_drift</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="bp">self</span>,</span><span class="param">	<span class="n">state</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">time</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">external_inputs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>:</span></span>
 
         
     </div>
@@ -485,44 +516,59 @@ registered hooks while the latter silently ignores them.</p>
     </div>
     <a class="headerlink" href="#DiffusionNet"></a>
     
-            <div class="docstring"><p>Neural network approximating the diffusion term sigma(x, t, u) in the neural SDE.</p>
+            <div class="docstring"><p>Neural network approximating the diffusion term sigma(x, t, u).</p>
 </div>
 
 
                             <div id="DiffusionNet.__init__" class="classattr">
                                 <div class="attr function">
             
-        <span class="name">DiffusionNet</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">architecture</span><span class="p">:</span> <span class="n"><a href="core/hyperparameters.html#NetworkArchitecture">neural_dynamics.core.hyperparameters.NetworkArchitecture</a></span>,</span><span class="param">	activation: Callable[[], torch.nn.modules.module.Module] = &lt;class &#x27;torch.nn.modules.activation.Tanh&#x27;&gt;,</span><span class="param">	<span class="n">device</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span> <span class="o">=</span> <span class="n">device</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s1">&#39;mps&#39;</span><span class="p">)</span></span>)</span>
+        <span class="name">DiffusionNet</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">architecture</span><span class="p">:</span> <span class="n"><a href="core/hyperparameters.html#NetworkArchitecture">neural_dynamics.core.hyperparameters.NetworkArchitecture</a></span>,</span><span class="param">	<span class="o">*</span>,</span><span class="param">	<span class="n">state_dimension</span><span class="p">:</span> <span class="nb">int</span>,</span><span class="param">	<span class="n">noise_dimension</span><span class="p">:</span> <span class="nb">int</span>,</span><span class="param">	activation: Callable[[], torch.nn.modules.module.Module] = &lt;class &#x27;torch.nn.modules.activation.Tanh&#x27;&gt;,</span><span class="param">	<span class="n">device</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span> <span class="o">=</span> <span class="n">device</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s1">&#39;mps&#39;</span><span class="p">)</span></span>)</span>
 
         
     </div>
     <a class="headerlink" href="#DiffusionNet.__init__"></a>
     
-            <div class="docstring"><p>Initialise the feedforward network with specified architecture.</p>
-
-<h6 id="arguments">Arguments:</h6>
-
-<ul>
-<li><strong>architecture:</strong>  Network layer configuration</li>
-<li><strong>activation:</strong>  Activation function</li>
-<li><strong>final_activation:</strong>  Optional activation for the final layer</li>
-<li><strong>device:</strong>  Computation device</li>
-</ul>
+            <div class="docstring"><p>Initialise the diffusion network with dimensionality checks.</p>
 </div>
 
 
                             </div>
-                            <div id="DiffusionNet.compute_diffusion" class="classattr">
+                            <div id="DiffusionNet.state_dimension" class="classattr">
                                 <div class="attr variable">
-            <span class="name">compute_diffusion</span>        =
-<input id="DiffusionNet.compute_diffusion-view-value" class="view-value-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
-            <label class="view-value-button pdoc-button" for="DiffusionNet.compute_diffusion-view-value"></label><span class="default_value">ScriptMethodStub(resolution_callback=&lt;function createResolutionCallbackFromEnv.&lt;locals&gt;.&lt;lambda&gt;&gt;, def_=&lt;torch._C._jit_tree_views.Def object&gt;, original_method=&lt;function <a href="#DiffusionNet.compute_diffusion">DiffusionNet.compute_diffusion</a>&gt;)</span>
+            <span class="name">state_dimension</span>
+
+        
+    </div>
+    <a class="headerlink" href="#DiffusionNet.state_dimension"></a>
+    
+    
+
+                            </div>
+                            <div id="DiffusionNet.noise_dimension" class="classattr">
+                                <div class="attr variable">
+            <span class="name">noise_dimension</span>
+
+        
+    </div>
+    <a class="headerlink" href="#DiffusionNet.noise_dimension"></a>
+    
+    
+
+                            </div>
+                            <div id="DiffusionNet.compute_diffusion" class="classattr">
+                                <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">compute_diffusion</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="bp">self</span>,</span><span class="param">	<span class="n">state</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">time</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">external_inputs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span></span><span class="return-annotation">) -> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>:</span></span>
 
         
     </div>
     <a class="headerlink" href="#DiffusionNet.compute_diffusion"></a>
     
-    
+            <div class="docstring"><p>Compute diffusion matrices for given state, time, and inputs.</p>
+</div>
+
 
                             </div>
                 </section>
@@ -543,21 +589,82 @@ registered hooks while the latter silently ignores them.</p>
                             <div id="CriticNet.__init__" class="classattr">
                                 <div class="attr function">
             
-        <span class="name">CriticNet</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">architecture</span><span class="p">:</span> <span class="n"><a href="core/hyperparameters.html#NetworkArchitecture">neural_dynamics.core.hyperparameters.NetworkArchitecture</a></span>,</span><span class="param">	activation: Callable[[], torch.nn.modules.module.Module] = &lt;class &#x27;torch.nn.modules.activation.Tanh&#x27;&gt;,</span><span class="param">	<span class="n">device</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span> <span class="o">=</span> <span class="n">device</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s1">&#39;mps&#39;</span><span class="p">)</span></span>)</span>
+        <span class="name">CriticNet</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">architecture</span><span class="p">:</span> <span class="n"><a href="core/hyperparameters.html#NetworkArchitecture">neural_dynamics.core.hyperparameters.NetworkArchitecture</a></span>,</span><span class="param">	<span class="n">trajectory_length</span><span class="p">:</span> <span class="nb">int</span>,</span><span class="param">	<span class="o">*</span>,</span><span class="param">	activation: Callable[[], torch.nn.modules.module.Module] = &lt;class &#x27;torch.nn.modules.activation.Tanh&#x27;&gt;,</span><span class="param">	<span class="n">device</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span> <span class="o">=</span> <span class="n">device</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s1">&#39;mps&#39;</span><span class="p">)</span></span>)</span>
 
         
     </div>
     <a class="headerlink" href="#CriticNet.__init__"></a>
     
-            <div class="docstring"><p>Initialise the feedforward network with specified architecture.</p>
+            <div class="docstring"><p>Initialise the critic with trajectory-specific validation.</p>
 
 <h6 id="arguments">Arguments:</h6>
 
 <ul>
-<li><strong>architecture:</strong>  Network layer configuration</li>
-<li><strong>activation:</strong>  Activation function</li>
-<li><strong>final_activation:</strong>  Optional activation for the final layer</li>
-<li><strong>device:</strong>  Computation device</li>
+<li><strong>architecture:</strong>  Network architecture describing the critic network.</li>
+<li><strong>trajectory_length:</strong>  Number of timesteps in each trajectory segment.</li>
+<li><strong>activation:</strong>  Factory returning the activation module used between layers.</li>
+<li><strong>device:</strong>  Device where the network parameters are stored.</li>
+</ul>
+
+<h6 id="raises">Raises:</h6>
+
+<ul>
+<li><strong>ValueError:</strong>  If the provided configuration is inconsistent.</li>
+</ul>
+</div>
+
+
+                            </div>
+                            <div id="CriticNet.architecture" class="classattr">
+                                <div class="attr variable">
+            <span class="name">architecture</span>
+
+        
+    </div>
+    <a class="headerlink" href="#CriticNet.architecture"></a>
+    
+    
+
+                            </div>
+                            <div id="CriticNet.trajectory_length" class="classattr">
+                                <div class="attr variable">
+            <span class="name">trajectory_length</span>
+
+        
+    </div>
+    <a class="headerlink" href="#CriticNet.trajectory_length"></a>
+    
+    
+
+                            </div>
+                            <div id="CriticNet.score" class="classattr">
+                                <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">score</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="n">trajectory_segment</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span></span><span class="return-annotation">) -> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>:</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#CriticNet.score"></a>
+    
+            <div class="docstring"><p>Score a batch of trajectories.</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>trajectory_segment:</strong>  Tensor of shape <code>[batch, time, state_dim]</code>.</li>
+</ul>
+
+<h6 id="returns">Returns:</h6>
+
+<blockquote>
+  <p>Critic scores with shape <code>[batch, 1]</code>.</p>
+</blockquote>
+
+<h6 id="raises">Raises:</h6>
+
+<ul>
+<li><strong>ValueError:</strong>  If the input tensor shape does not match configuration.</li>
 </ul>
 </div>
 
@@ -574,48 +681,14 @@ registered hooks while the latter silently ignores them.</p>
     </div>
     <a class="headerlink" href="#NeuralSDE"></a>
     
-            <div class="docstring"><p>Base class for all neural network modules.</p>
-
-<p>Your models should also subclass this class.</p>
-
-<p>Modules can also contain other Modules, allowing them to be nested in
-a tree structure. You can assign the submodules as regular attributes::</p>
-
-<pre><code>import torch.nn as nn
-import torch.nn.functional as F
-
-
-class Model(nn.Module):
-    def __init__(self) -&gt; None:
-        super().__init__()
-        self.conv1 = nn.Conv2d(1, 20, 5)
-        self.conv2 = nn.Conv2d(20, 20, 5)
-
-    def forward(self, x):
-        x = F.relu(self.conv1(x))
-        return F.relu(self.conv2(x))
-</code></pre>
-
-<p>Submodules assigned in this way will be registered, and will also have their
-parameters converted when you call <code><a href="#NeuralSDE.to">to()</a></code>, etc.</p>
-
-<div class="alert note">
-
-<p>As per the example above, an <code><a href="#NeuralSDE.__init__">__init__()</a></code> call to the parent class
-must be made before assignment on the child.</p>
-
-</div>
-
-<p>:ivar training: Boolean represents whether this module is in training or
-                evaluation mode.
-:vartype training: bool</p>
+            <div class="docstring"><p>Neural SDE model composed of drift, diffusion, and critic networks.</p>
 </div>
 
 
                             <div id="NeuralSDE.__init__" class="classattr">
                                 <div class="attr function">
             
-        <span class="name">NeuralSDE</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">drift_net</span><span class="p">:</span> <span class="n"><a href="#DriftNet">DriftNet</a></span>,</span><span class="param">	<span class="n">diffusion_net</span><span class="p">:</span> <span class="n"><a href="#DiffusionNet">DiffusionNet</a></span>,</span><span class="param">	<span class="n">hyperparameters</span><span class="p">:</span> <span class="n"><a href="core/hyperparameters.html#Hyperparameters">neural_dynamics.core.hyperparameters.Hyperparameters</a></span></span>)</span>
+        <span class="name">NeuralSDE</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">drift_or_hyperparameters</span><span class="p">:</span> <span class="n"><a href="#DriftNet">DriftNet</a></span> <span class="o">|</span> <span class="n"><a href="core/hyperparameters.html#Hyperparameters">neural_dynamics.core.hyperparameters.Hyperparameters</a></span>,</span><span class="param">	<span class="n">diffusion_net</span><span class="p">:</span> <span class="n"><a href="#DiffusionNet">DiffusionNet</a></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="n">hyperparameters</span><span class="p">:</span> <span class="n"><a href="core/hyperparameters.html#Hyperparameters">neural_dynamics.core.hyperparameters.Hyperparameters</a></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>,</span><span class="param">	<span class="o">*</span>,</span><span class="param">	<span class="n">critic_net</span><span class="p">:</span> <span class="n"><a href="#CriticNet">CriticNet</a></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span></span>)</span>
 
         
     </div>
@@ -626,44 +699,11 @@ must be made before assignment on the child.</p>
 
 
                             </div>
-                            <div id="NeuralSDE.drift_net" class="classattr">
-                                <div class="attr variable">
-            <span class="name">drift_net</span>
-
-        
-    </div>
-    <a class="headerlink" href="#NeuralSDE.drift_net"></a>
-    
-    
-
-                            </div>
-                            <div id="NeuralSDE.diffusion_net" class="classattr">
-                                <div class="attr variable">
-            <span class="name">diffusion_net</span>
-
-        
-    </div>
-    <a class="headerlink" href="#NeuralSDE.diffusion_net"></a>
-    
-    
-
-                            </div>
-                            <div id="NeuralSDE.hyperparameters" class="classattr">
-                                <div class="attr variable">
-            <span class="name">hyperparameters</span>
-
-        
-    </div>
-    <a class="headerlink" href="#NeuralSDE.hyperparameters"></a>
-    
-    
-
-                            </div>
                             <div id="NeuralSDE.forward" class="classattr">
                                 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">forward</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="n">initial_state</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>, </span><span class="param"><span class="n">t_span</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span></span><span class="return-annotation">) -> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>:</span></span>
+        <span class="name">forward</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n">Any</span>, </span><span class="param"><span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span></span><span class="return-annotation">) -> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>:</span></span>
 
         
     </div>
@@ -685,30 +725,19 @@ registered hooks while the latter silently ignores them.</p>
 
 
                             </div>
-                            <div id="NeuralSDE.drift_function" class="classattr">
+                            <div id="NeuralSDE.count_total_parameters" class="classattr">
                                 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">drift_function</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="n">t</span><span class="p">:</span> <span class="nb">float</span>, </span><span class="param"><span class="n">state</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span></span><span class="return-annotation">) -> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>:</span></span>
+        <span class="name">count_total_parameters</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span></span><span class="return-annotation">) -> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span>:</span></span>
 
         
     </div>
-    <a class="headerlink" href="#NeuralSDE.drift_function"></a>
+    <a class="headerlink" href="#NeuralSDE.count_total_parameters"></a>
     
-    
+            <div class="docstring"><p>Return the number of trainable parameters per network component.</p>
+</div>
 
-                            </div>
-                            <div id="NeuralSDE.diffusion_function" class="classattr">
-                                <div class="attr function">
-            
-        <span class="def">def</span>
-        <span class="name">diffusion_function</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="n">t</span><span class="p">:</span> <span class="nb">float</span>, </span><span class="param"><span class="n">state</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span></span><span class="return-annotation">) -> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>:</span></span>
-
-        
-    </div>
-    <a class="headerlink" href="#NeuralSDE.diffusion_function"></a>
-    
-    
 
                             </div>
                 </section>
