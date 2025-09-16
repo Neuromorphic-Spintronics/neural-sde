@@ -66,6 +66,22 @@
 
 
 
+            <h2>API Documentation</h2>
+                <ul class="memberlist">
+            <li>
+                    <a class="variable" href="#SYSTEM_REGISTRY">SYSTEM_REGISTRY</a>
+            </li>
+            <li>
+                    <a class="function" href="#get_system_info">get_system_info</a>
+            </li>
+            <li>
+                    <a class="function" href="#get_available_systems">get_available_systems</a>
+            </li>
+            <li>
+                    <a class="function" href="#get_implemented_systems">get_implemented_systems</a>
+            </li>
+    </ul>
+
 
 
         <a class="attribution" title="pdoc: Python API documentation generator" href="https://pdoc.dev" target="_blank">
@@ -85,6 +101,94 @@
                 
                 
             </section>
+                <section id="SYSTEM_REGISTRY">
+                    <div class="attr variable">
+            <span class="name">SYSTEM_REGISTRY</span><span class="annotation">: Dict[str, Dict[str, Any]]</span>        =
+<input id="SYSTEM_REGISTRY-view-value" class="view-value-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
+            <label class="view-value-button pdoc-button" for="SYSTEM_REGISTRY-view-value"></label><span class="default_value">{&#39;duffing&#39;: {&#39;system_class&#39;: &lt;class &#39;<a href="duffing_oscillator.html#DuffingOscillator">systems.duffing_oscillator.DuffingOscillator</a>&#39;&gt;, &#39;parameter_class&#39;: &lt;class &#39;<a href="../parameters/duffing_oscillator.html#PhysicalDuffingParameters">parameters.duffing_oscillator.PhysicalDuffingParameters</a>&#39;&gt;, &#39;description&#39;: &#39;A forced, damped oscillator with a nonlinear restoring force.&#39;, &#39;is_implemented&#39;: True, &#39;state_variables&#39;: [&#39;q&#39;, &#39;v&#39;, &#39;xi&#39;], &#39;state_units&#39;: [&#39;m&#39;, &#39;m/s&#39;, &#39;N/A&#39;], &#39;has_external_forcing&#39;: True, &#39;default_hidden_layers&#39;: [128, 128, 128], &#39;state_dimension&#39;: 2, &#39;full_state_dimension&#39;: 3, &#39;get_drift_function&#39;: &lt;function DuffingOscillator.get_drift_function&gt;}, &#39;leaky_integrator&#39;: {&#39;system_class&#39;: None, &#39;parameter_class&#39;: None, &#39;description&#39;: &#39;A simple first-order linear system (Not Implemented).&#39;, &#39;is_implemented&#39;: False, &#39;state_variables&#39;: [&#39;V&#39;], &#39;state_units&#39;: [&#39;V&#39;], &#39;has_external_forcing&#39;: False, &#39;default_hidden_layers&#39;: [32, 32], &#39;state_dimension&#39;: 1, &#39;full_state_dimension&#39;: 1, &#39;get_drift_function&#39;: None}}</span>
+
+        
+    </div>
+    <a class="headerlink" href="#SYSTEM_REGISTRY"></a>
+    
+    
+
+                </section>
+                <section id="get_system_info">
+                    <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">get_system_info</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">system_name</span><span class="p">:</span> <span class="nb">str</span></span><span class="return-annotation">) -> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>:</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#get_system_info"></a>
+    
+            <div class="docstring"><p>Retrieve information about a system from the registry.</p>
+
+<h6 id="arguments">Arguments:</h6>
+
+<ul>
+<li><strong>system_name:</strong>  The name of the system.</li>
+</ul>
+
+<h6 id="returns">Returns:</h6>
+
+<blockquote>
+  <p>A dictionary containing system information.</p>
+</blockquote>
+
+<h6 id="raises">Raises:</h6>
+
+<ul>
+<li><strong>ValueError:</strong>  If the system is not found in the registry.</li>
+</ul>
+</div>
+
+
+                </section>
+                <section id="get_available_systems">
+                    <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">get_available_systems</span><span class="signature pdoc-code condensed">(<span class="return-annotation">) -> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>:</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#get_available_systems"></a>
+    
+            <div class="docstring"><p>Get a list of all available system names.</p>
+
+<h6 id="returns">Returns:</h6>
+
+<blockquote>
+  <p>A list of strings with the names of the systems.</p>
+</blockquote>
+</div>
+
+
+                </section>
+                <section id="get_implemented_systems">
+                    <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">get_implemented_systems</span><span class="signature pdoc-code condensed">(<span class="return-annotation">) -> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>:</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#get_implemented_systems"></a>
+    
+            <div class="docstring"><p>Get a list of implemented system names.</p>
+
+<h6 id="returns">Returns:</h6>
+
+<blockquote>
+  <p>A list of strings with the names of the implemented systems.</p>
+</blockquote>
+</div>
+
+
+                </section>
     </main>
 <script>
     function escapeHTML(html) {

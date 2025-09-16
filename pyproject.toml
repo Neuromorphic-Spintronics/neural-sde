@@ -3,19 +3,23 @@ name = "neural-sde"
 version = "0.1.0"
 description = "Command line tool to apply the Neural SDE framework to any time series data."
 readme = "README.md"
-requires-python = ">=3.13.5"
+requires-python = ">=3.13.3"
 dependencies = [
     "marimo>=0.14.13",
     "matplotlib>=3.10.3",
     "numpy>=2.3.1",
+    "openai>=1.106.1",
     "pdoc>=15.0.4",
+    "pre-commit>=4.3.0",
     "pyrefly>=0.24.2",
     "pytest>=8.4.1",
     "pyyaml>=6.0.2",
     "ruff>=0.12.3",
+    "scipy>=1.16.1",
     "torch>=2.7.1",
     "tqdm>=4.67.1",
     "zarr>=3.1.0",
+    "pandas>=2.2.0",
 ]
 
 [dependency-groups]
@@ -53,9 +57,21 @@ dev = [
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
+# Also include single-file modules at repo root
+[tool.setuptools]
+py-modules = ["config", "main"]
+
+# Package discovery for installation/build
 [tool.setuptools.packages.find]
-include = ["models*", "systems*", "training*", "parameters*"]
-exclude = ["tests*", "docs*"]
+include = [
+  "neural_dynamics*",
+  "examples*",
+]
+exclude = [
+  "tests*",
+  "docs*",
+  "**/__pycache__*",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -63,4 +79,4 @@ python_files = ["test_*.py"]
 addopts = ["-v", "--tb=short"]
 
 [tool.coverage.run]
-source = ["neural_sde"]
+source = ["neural_dynamics"]

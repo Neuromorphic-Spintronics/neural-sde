@@ -193,6 +193,9 @@
                         <li>
                                 <a class="function" href="#PhysicalDuffingParameters.to_dimensionless">to_dimensionless</a>
                         </li>
+                        <li>
+                                <a class="function" href="#PhysicalDuffingParameters.external_forcing_term">external_forcing_term</a>
+                        </li>
                 </ul>
 
             </li>
@@ -772,6 +775,22 @@ characteristic length and time scales.</p>
 <blockquote>
   <p>DuffingOscillatorParameters with dimensionless values</p>
 </blockquote>
+</div>
+
+
+                            </div>
+                            <div id="PhysicalDuffingParameters.external_forcing_term" class="classattr">
+                                <div class="attr function">
+            
+        <span class="def">def</span>
+        <span class="name">external_forcing_term</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="bp">self</span>,</span><span class="param">	<span class="n">t</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">amplitude</span><span class="p">:</span> <span class="nb">float</span>,</span><span class="param">	<span class="n">frequency</span><span class="p">:</span> <span class="nb">float</span></span><span class="return-annotation">) -> <span class="nb">float</span> <span class="o">|</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>:</span></span>
+
+        
+    </div>
+    <a class="headerlink" href="#PhysicalDuffingParameters.external_forcing_term"></a>
+    
+            <div class="docstring"><p>Compute the external forcing term at a given time or batch of times.
+This is the dimensionless version, so t is dimensionless time.</p>
 </div>
 
 
