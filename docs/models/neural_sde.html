@@ -99,16 +99,16 @@
 
             </li>
             <li>
-                    <a class="class" href="#DiscriminatorNet">DiscriminatorNet</a>
+                    <a class="class" href="#CriticNet">CriticNet</a>
                             <ul class="memberlist">
                         <li>
-                                <a class="function" href="#DiscriminatorNet.__init__">DiscriminatorNet</a>
+                                <a class="function" href="#CriticNet.__init__">CriticNet</a>
                         </li>
                         <li>
-                                <a class="variable" href="#DiscriminatorNet.trajectory_length">trajectory_length</a>
+                                <a class="variable" href="#CriticNet.trajectory_length">trajectory_length</a>
                         </li>
                         <li>
-                                <a class="function" href="#DiscriminatorNet.score_trajectory">score_trajectory</a>
+                                <a class="function" href="#CriticNet.score">score</a>
                         </li>
                 </ul>
 
@@ -141,7 +141,7 @@
                                 <a class="variable" href="#NeuralSDE.diffusion_net">diffusion_net</a>
                         </li>
                         <li>
-                                <a class="variable" href="#NeuralSDE.discriminator_net">discriminator_net</a>
+                                <a class="variable" href="#NeuralSDE.critic_net">critic_net</a>
                         </li>
                         <li>
                                 <a class="function" href="#NeuralSDE.forward">forward</a>
@@ -170,14 +170,14 @@
 
                         <div class="docstring"><p>Neural Stochastic Differential Equation (Neural SDE) model with adversarial training.</p>
 
-<p>This module implements a neural SDE framework that can learn the dynamics of stochastic systems through a combination of neural networks representing drift and diffusion terms, along with adversarial training using a discriminator.</p>
+<p>This module implements a neural SDE framework that can learn the dynamics of stochastic systems through a combination of neural networks representing drift and diffusion terms, along with adversarial training using a critic.</p>
 
 <p>Key components:</p>
 
 <ul>
 <li><code><a href="#DriftNet">DriftNet</a></code>: Neural network approximating deterministic dynamics mu(x, t, u)</li>
-<li><code><a href="#DiffusionNet">DiffusionNet</a></code>: Neural network approximating stochastic dynamics sigma(x, t, u)  </li>
-<li><code><a href="#DiscriminatorNet">DiscriminatorNet</a></code>: Critic network for adversarial training</li>
+<li><code><a href="#DiffusionNet">DiffusionNet</a></code>: Neural network approximating stochastic dynamics sigma(x, t, u)</li>
+<li><code><a href="#CriticNet">CriticNet</a></code>: Critic network for adversarial training</li>
 <li><code><a href="#NeuralSDE">NeuralSDE</a></code>: Main class combining networks with SDE integration for simulation</li>
 </ul>
 </div>
@@ -306,7 +306,7 @@
 
 <ul>
 <li><strong>architecture:</strong>  Network architecture specification from hyperparameters</li>
-<li><strong>state_dimension:</strong>  Dimension of the system state space  </li>
+<li><strong>state_dimension:</strong>  Dimension of the system state space</li>
 <li><strong>noise_dimension:</strong>  Dimension of the noise process</li>
 <li><strong>activation:</strong>  Activation function (defaults to nn.Tanh)</li>
 <li><strong>device:</strong>  Computation device</li>
@@ -341,7 +341,7 @@
 <ul>
 <li><strong>architecture:</strong>  Network structure specification</li>
 <li><strong>state_dimension:</strong>  System state dimension</li>
-<li><strong>noise_dimension:</strong>  Noise process dimension  </li>
+<li><strong>noise_dimension:</strong>  Noise process dimension</li>
 <li><strong>activation:</strong>  Activation function</li>
 <li><strong>device:</strong>  Computation device</li>
 </ul>
@@ -412,19 +412,22 @@
                                 </dl>
                             </div>
                 </section>
-                <section id="DiscriminatorNet">
+                <section id="CriticNet">
                     <div class="attr class">
             
     <span class="def">class</span>
-    <span class="name">DiscriminatorNet</span><wbr>(<span class="base"><a href="modules.html#FeedForwardNetwork">models.modules.FeedForwardNetwork</a></span>):
+    <span class="name">CriticNet</span><wbr>(<span class="base"><a href="modules.html#FeedForwardNetwork">models.modules.FeedForwardNetwork</a></span>):
 
         
     </div>
-    <a class="headerlink" href="#DiscriminatorNet"></a>
+    <a class="headerlink" href="#CriticNet"></a>
     
-            <div class="docstring"><p>Discriminator network for adversarial training of neural SDEs.</p>
+            <div class="docstring"><p>Critic network for adversarial training of neural SDEs.</p>
 
-<p>This network acts as a critic that scores trajectory segments to distinguish between real (from the 'true' (simulated) system) and synthetic (from the neural SDE) trajectories. Used in Wasserstein GAN training with gradient penalty (to ensure 1-Lipschitz).</p>
+<p>This network scores trajectory segments to distinguish between real (from the
+'true' (simulated) system) and synthetic (from the neural SDE) trajectories.
+Used in Wasserstein GAN training with gradient penalty (to ensure
+1-Lipschitz).</p>
 
 <h6 id="arguments">Arguments:</h6>
 
@@ -439,25 +442,25 @@
 
 <blockquote>
   <div class="pdoc-code codehilite">
-<pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Discriminator for trajectory chunks of length 64 with 3D states</span>
+<pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Critic for trajectory chunks of length 64 with 3D states</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">architecture</span> <span class="o">=</span> <span class="n">NetworkArchitecture</span><span class="p">(</span><span class="n">input_size</span><span class="o">=</span><span class="mi">192</span><span class="p">,</span> <span class="n">hidden_sizes</span><span class="o">=</span><span class="p">[</span><span class="mi">64</span><span class="p">,</span> <span class="mi">32</span><span class="p">],</span> <span class="n">output_size</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">disc</span> <span class="o">=</span> <span class="n">DiscriminatorNet</span><span class="p">(</span><span class="n">architecture</span><span class="p">,</span> <span class="n">trajectory_length</span><span class="o">=</span><span class="mi">64</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">critic</span> <span class="o">=</span> <span class="n">CriticNet</span><span class="p">(</span><span class="n">architecture</span><span class="p">,</span> <span class="n">trajectory_length</span><span class="o">=</span><span class="mi">64</span><span class="p">)</span>
 </code></pre>
   </div>
 </blockquote>
 </div>
 
 
-                            <div id="DiscriminatorNet.__init__" class="classattr">
+                            <div id="CriticNet.__init__" class="classattr">
                                 <div class="attr function">
             
-        <span class="name">DiscriminatorNet</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">architecture</span><span class="p">:</span> <span class="n"><a href="../parameters/hyperparameters.html#NetworkArchitecture">parameters.hyperparameters.NetworkArchitecture</a></span>,</span><span class="param">	<span class="n">trajectory_length</span><span class="p">:</span> <span class="nb">int</span>,</span><span class="param">	activation: Callable[[], torch.nn.modules.module.Module] = &lt;class &#x27;torch.nn.modules.activation.Tanh&#x27;&gt;,</span><span class="param">	<span class="o">*</span>,</span><span class="param">	<span class="n">device</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span> <span class="o">=</span> <span class="n">device</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s1">&#39;mps&#39;</span><span class="p">)</span></span>)</span>
+        <span class="name">CriticNet</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">architecture</span><span class="p">:</span> <span class="n"><a href="../parameters/hyperparameters.html#NetworkArchitecture">parameters.hyperparameters.NetworkArchitecture</a></span>,</span><span class="param">	<span class="n">trajectory_length</span><span class="p">:</span> <span class="nb">int</span>,</span><span class="param">	activation: Callable[[], torch.nn.modules.module.Module] = &lt;class &#x27;torch.nn.modules.activation.Tanh&#x27;&gt;,</span><span class="param">	<span class="o">*</span>,</span><span class="param">	<span class="n">device</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span> <span class="o">=</span> <span class="n">device</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s1">&#39;mps&#39;</span><span class="p">)</span></span>)</span>
 
         
     </div>
-    <a class="headerlink" href="#DiscriminatorNet.__init__"></a>
+    <a class="headerlink" href="#CriticNet.__init__"></a>
     
-            <div class="docstring"><p>Initialise the discriminator network.</p>
+            <div class="docstring"><p>Initialise the critic network.</p>
 
 <h6 id="arguments">Arguments:</h6>
 
@@ -471,50 +474,53 @@
 
 
                             </div>
-                            <div id="DiscriminatorNet.trajectory_length" class="classattr">
+                            <div id="CriticNet.trajectory_length" class="classattr">
                                 <div class="attr variable">
             <span class="name">trajectory_length</span>
 
         
     </div>
-    <a class="headerlink" href="#DiscriminatorNet.trajectory_length"></a>
+    <a class="headerlink" href="#CriticNet.trajectory_length"></a>
     
     
 
                             </div>
-                            <div id="DiscriminatorNet.score_trajectory" class="classattr">
+                            <div id="CriticNet.score" class="classattr">
                                 <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">score_trajectory</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="n">trajectory_segment</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span></span><span class="return-annotation">) -> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>:</span></span>
+        <span class="name">score</span><span class="signature pdoc-code condensed">(<span class="param"><span class="bp">self</span>, </span><span class="param"><span class="n">trajectory_segment</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span></span><span class="return-annotation">) -> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>:</span></span>
 
         
     </div>
-    <a class="headerlink" href="#DiscriminatorNet.score_trajectory"></a>
+    <a class="headerlink" href="#CriticNet.score"></a>
     
-            <div class="docstring"><p>Score a trajectory segment using the discriminator network.</p>
+            <div class="docstring"><p>Score a trajectory segment using the critic network.</p>
 
 <p>This method takes a batch of trajectory segments and flattens them
 to pass through the feedforward network, producing a score for each
-trajectory that indicates how "real" vs "fake" the discriminator
+trajectory that indicates how "real" vs "fake" the critic
 believes each trajectory to be.</p>
 
 <h6 id="arguments">Arguments:</h6>
 
 <ul>
-<li><strong>trajectory_segment:</strong>  Trajectory of shape [batch_size, trajectory_length, state_dim]</li>
+<li><strong>trajectory_segment:</strong>  Trajectory of shape [batch_size,
+trajectory_length, state_dim]</li>
 </ul>
 
 <h6 id="returns">Returns:</h6>
 
 <blockquote>
-  <p>Scores of shape [batch_size, 1] - higher scores indicate more "real" trajectories</p>
+  <p>Scores of shape [batch_size, 1] - higher scores indicate more
+  "real" trajectories</p>
 </blockquote>
 
 <h6 id="raises">Raises:</h6>
 
 <ul>
-<li><strong>ValueError:</strong>  If trajectory dimensions don't match expected architecture</li>
+<li><strong>ValueError:</strong>  If trajectory dimensions don't match expected
+architecture</li>
 </ul>
 </div>
 
@@ -524,9 +530,9 @@ believes each trajectory to be.</p>
                                 <h5>Inherited Members</h5>
                                 <dl>
                                     <div><dt><a href="modules.html#FeedForwardNetwork">models.modules.FeedForwardNetwork</a></dt>
-                                <dd id="DiscriminatorNet.architecture" class="variable"><a href="modules.html#FeedForwardNetwork.architecture">architecture</a></dd>
-                <dd id="DiscriminatorNet.layer_sizes" class="variable"><a href="modules.html#FeedForwardNetwork.layer_sizes">layer_sizes</a></dd>
-                <dd id="DiscriminatorNet.forward" class="function"><a href="modules.html#FeedForwardNetwork.forward">forward</a></dd>
+                                <dd id="CriticNet.architecture" class="variable"><a href="modules.html#FeedForwardNetwork.architecture">architecture</a></dd>
+                <dd id="CriticNet.layer_sizes" class="variable"><a href="modules.html#FeedForwardNetwork.layer_sizes">layer_sizes</a></dd>
+                <dd id="CriticNet.forward" class="function"><a href="modules.html#FeedForwardNetwork.forward">forward</a></dd>
 
             </div>
                                 </dl>
@@ -553,8 +559,6 @@ believes each trajectory to be.</p>
 <li>Second-order Runge-Kutta (RK2) method for neural ODEs (when diffusion_net is None)</li>
 </ul>
 
-<p><strong>Important Constraint</strong>: For stochastic systems (when diffusion_net is present), a discriminator network is required for adversarial training. For deterministic systems, the discriminator is optional.</p>
-
 <h6 id="arguments">Arguments:</h6>
 
 <ul>
@@ -570,7 +574,7 @@ believes each trajectory to be.</p>
 <pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn"><a href="../parameters/hyperparameters.html">parameters.hyperparameters</a></span><span class="w"> </span><span class="kn">import</span> <span class="n">Hyperparameters</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">hyperparams</span> <span class="o">=</span> <span class="n">Hyperparameters</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">neural_sde</span> <span class="o">=</span> <span class="n">NeuralSDE</span><span class="p">(</span><span class="n">hyperparams</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt; </span>
+<span class="gp">&gt;&gt;&gt;</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="c1"># Simulate trajectory</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">inputs</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">batch_size</span><span class="p">,</span> <span class="n">input_dim</span><span class="p">,</span> <span class="n">num_timesteps</span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">initial_state</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">batch_size</span><span class="p">,</span> <span class="n">state_dim</span><span class="p">)</span>
@@ -680,13 +684,13 @@ believes each trajectory to be.</p>
     
 
                             </div>
-                            <div id="NeuralSDE.discriminator_net" class="classattr">
+                            <div id="NeuralSDE.critic_net" class="classattr">
                                 <div class="attr variable">
-            <span class="name">discriminator_net</span>
+            <span class="name">critic_net</span>
 
         
     </div>
-    <a class="headerlink" href="#NeuralSDE.discriminator_net"></a>
+    <a class="headerlink" href="#NeuralSDE.critic_net"></a>
     
     
 
@@ -703,13 +707,13 @@ believes each trajectory to be.</p>
     
             <div class="docstring"><p>Simulate neural SDE trajectory given external inputs.</p>
 
-<p>Steps through time using the configured integration method, with the neural networks providing drift and diffusion terms at each step. Gradients are retained for training via backpropagation through time (as per original paper by Manneschi et al.) or an adjoint method (to be implemented).</p>
+<p>Steps through time using the configured integration method, with the neural networks providing drift and diffusion terms at each step. Gradients are retained for training via backpropagation through time (as per Manneschi et al.) or an adjoint method (to be implemented).</p>
 
 <h6 id="arguments">Arguments:</h6>
 
 <ul>
 <li><strong>external_inputs:</strong>  External forcing/control inputs of shape [batch_size, input_dimension, num_timesteps]</li>
-<li><strong>initial_state:</strong>  Initial state conditions of shape [batch_size, state_dimension]  </li>
+<li><strong>initial_state:</strong>  Initial state conditions of shape [batch_size, state_dimension]</li>
 <li><strong>initial_time:</strong>  Starting time for simulation</li>
 </ul>
 
@@ -762,7 +766,7 @@ believes each trajectory to be.</p>
                                     <div><dt><a href="protocols.html#NeuralSDEProtocol">models.protocols.NeuralSDEProtocol</a></dt>
                                 <dd id="NeuralSDE.get_drift_network" class="function"><a href="protocols.html#NeuralSDEProtocol.get_drift_network">get_drift_network</a></dd>
                 <dd id="NeuralSDE.get_diffusion_network" class="function"><a href="protocols.html#NeuralSDEProtocol.get_diffusion_network">get_diffusion_network</a></dd>
-                <dd id="NeuralSDE.get_discriminator_network" class="function"><a href="protocols.html#NeuralSDEProtocol.get_discriminator_network">get_discriminator_network</a></dd>
+                <dd id="NeuralSDE.get_critic_network" class="function"><a href="protocols.html#NeuralSDEProtocol.get_critic_network">get_critic_network</a></dd>
 
             </div>
                                 </dl>

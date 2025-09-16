@@ -149,7 +149,7 @@
 
 <ul>
 <li>Euler-Maruyama single step method (handles both deterministic and stochastic cases)</li>
-<li>Stochastic Heun single step method  </li>
+<li>Stochastic Heun single step method</li>
 <li>Second-order Runge–Kutta (RK2) single-step method, suitable for deterministic systems and not implemented for stochastic systems.</li>
 </ul>
 
@@ -157,7 +157,7 @@
 
 <ul>
 <li>Second-order Runge–Kutta (RK2), suitable for deterministic systems</li>
-<li>Fourth-order Runge–Kutta (RK4), also suitable for deterministic systems  </li>
+<li>Fourth-order Runge–Kutta (RK4), also suitable for deterministic systems</li>
 <li>Adaptive Runge–Kutta–Fehlberg fourth-fifth-order (RKF45) method, suitable for systems with additive noise</li>
 </ul>
 
@@ -219,11 +219,11 @@ If None, treats as deterministic system (no noise).</li>
 <blockquote>
   <div class="pdoc-code codehilite">
 <pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Stochastic case</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">drift</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">t</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="o">-</span><span class="mf">0.5</span> <span class="o">*</span> <span class="n">x</span>  
+<span class="gp">&gt;&gt;&gt; </span><span class="n">drift</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">t</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="o">-</span><span class="mf">0.5</span> <span class="o">*</span> <span class="n">x</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">diffusion</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">t</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="mf">0.1</span> <span class="o">*</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones_like</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">x1</span> <span class="o">=</span> <span class="n">euler_maruyama_step</span><span class="p">(</span><span class="n">drift</span><span class="p">,</span> <span class="n">diffusion</span><span class="p">,</span> <span class="n">x0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.01</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt; </span>
-<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Deterministic case  </span>
+<span class="gp">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Deterministic case</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">x1</span> <span class="o">=</span> <span class="n">euler_maruyama_step</span><span class="p">(</span><span class="n">drift</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">x0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.01</span><span class="p">)</span>
 </code></pre>
   </div>
@@ -287,50 +287,13 @@ If None, treats as deterministic system (no noise).</li>
                     <div class="attr function">
             
         <span class="def">def</span>
-        <span class="name">runge_kutta_4_step</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">drift_function</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="nb">float</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span>,</span><span class="param">	<span class="n">current_state</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">current_time</span><span class="p">:</span> <span class="nb">float</span>,</span><span class="param">	<span class="n">timestep</span><span class="p">:</span> <span class="nb">float</span></span><span class="return-annotation">) -> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>:</span></span>
+        <span class="name">runge_kutta_4_step</span><span class="signature pdoc-code multiline">(<span class="param">	<span class="n">drift_function</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span>,</span><span class="param">	<span class="n">current_state</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">current_time</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>,</span><span class="param">	<span class="n">timestep</span><span class="p">:</span> <span class="nb">float</span></span><span class="return-annotation">) -> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>:</span></span>
 
         
     </div>
     <a class="headerlink" href="#runge_kutta_4_step"></a>
     
-            <div class="docstring"><p>Single step of the fourth-order Runge-Kutta method for deterministic neural ODE training.</p>
-
-<p>This implements a single step of the classical RK4 method, providing fourth-order accuracy for smooth deterministic systems. This is a deterministic-only method.</p>
-
-<h6 id="the-method-evaluates-the-drift-function-at-four-points">The method evaluates the drift function at four points:</h6>
-
-<blockquote>
-  <p>k1 = f(t_n, X_n)
-  k2 = f(t_n + dt/2, X_n + dt<em>k1/2)<br />
-  k3 = f(t_n + dt/2, X_n + dt</em>k2/2)
-  k4 = f(t_n + dt, X_n + dt<em>k3)
-  X_{n+1} = X_n + dt/6 * (k1 + 2</em>k2 + 2*k3 + k4)</p>
-</blockquote>
-
-<h6 id="arguments">Arguments:</h6>
-
-<ul>
-<li><strong>drift_function:</strong>  Function computing the drift term f(t, x)</li>
-<li><strong>current_state:</strong>  Current state vector of shape [batch_size, state_dimension]</li>
-<li><strong>current_time:</strong>  Current time value</li>
-<li><strong>timestep:</strong>  Integration timestep Delta t</li>
-</ul>
-
-<h6 id="returns">Returns:</h6>
-
-<blockquote>
-  <p>Next state vector of shape [batch_size, state_dimension]</p>
-</blockquote>
-
-<h6 id="example">Example:</h6>
-
-<blockquote>
-  <div class="pdoc-code codehilite">
-<pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">drift</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">t</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">x</span><span class="p">)</span>  <span class="c1"># Logistic growth equation</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">x1</span> <span class="o">=</span> <span class="n">runge_kutta_4_step</span><span class="p">(</span><span class="n">drift</span><span class="p">,</span> <span class="n">x0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">)</span>
-</code></pre>
-  </div>
-</blockquote>
+            <div class="docstring"><p>Perform one step of the 4th-order Runge-Kutta method for ODEs.</p>
 </div>
 
 
@@ -416,8 +379,8 @@ If None, treats as deterministic system (no noise).</li>
 <pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="c1"># For a neural SDE with diffusion</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">integrator</span> <span class="o">=</span> <span class="n">auto_select_integrator</span><span class="p">(</span><span class="n">has_diffusion</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="c1"># Returns stochastic_heun_step</span>
-<span class="gp">&gt;&gt;&gt; </span>
-<span class="gp">&gt;&gt;&gt; </span><span class="c1"># For a neural ODE without diffusion  </span>
+<span class="gp">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># For a neural ODE without diffusion</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">integrator</span> <span class="o">=</span> <span class="n">auto_select_integrator</span><span class="p">(</span><span class="n">has_diffusion</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="c1"># Returns runge_kutta_2_step</span>
 </code></pre>
@@ -704,7 +667,7 @@ for use in stochastic integration methods.</p>
   <p>dX(t) = mu(X(t), t) dt + sigma(X(t), t) dW(t)</p>
 </blockquote>
 
-<p>where sigma(X(t), t) is a [state_dim, noise_dim] matrix and dW(t) is 
+<p>where sigma(X(t), t) is a [state_dim, noise_dim] matrix and dW(t) is
 noise_dim-dimensional Brownian motion.</p>
 
 <h6 id="discretisation">Discretisation:</h6>
@@ -735,7 +698,7 @@ noise_dim-dimensional Brownian motion.</p>
 <blockquote>
   <div class="pdoc-code codehilite">
 <pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="k">def</span><span class="w"> </span><span class="nf">drift</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span> <span class="k">return</span> <span class="o">-</span><span class="mf">0.1</span> <span class="o">*</span> <span class="n">x</span>  <span class="c1"># Damping</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="k">def</span><span class="w"> </span><span class="nf">diffusion_matrix</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span> 
+<span class="gp">&gt;&gt;&gt; </span><span class="k">def</span><span class="w"> </span><span class="nf">diffusion_matrix</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
 <span class="gp">... </span>    <span class="c1"># Return 3x2 diffusion matrix for each batch element</span>
 <span class="gp">... </span>    <span class="n">batch_size</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
 <span class="gp">... </span>    <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">batch_size</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span> <span class="o">*</span> <span class="mf">0.1</span>
@@ -822,7 +785,7 @@ matrix diffusion.</p>
 <pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="c1"># For neural SDE with matrix diffusion</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">integrator</span> <span class="o">=</span> <span class="n">auto_select_matrix_integrator</span><span class="p">(</span><span class="n">has_diffusion</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="c1"># Returns matrix_stochastic_heun_step</span>
-<span class="gp">&gt;&gt;&gt; </span>
+<span class="gp">&gt;&gt;&gt;</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="c1"># For deterministic neural ODE</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">integrator</span> <span class="o">=</span> <span class="n">auto_select_matrix_integrator</span><span class="p">(</span><span class="n">has_diffusion</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="c1"># Returns runge_kutta_2_step (from standard integrators)</span>
