@@ -1,5 +1,8 @@
 .vscode/
 
+/data/
+literature/
+
 __pycache__/
 .DS_Store
 uv.lock
@@ -59,7 +62,6 @@ coverage.xml
 .pytest_cache/
 cover/
 tests/figures/
-data/
 
 # Translations
 *.mo
@@ -190,19 +192,13 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-# Abstra
-# Abstra is an AI-powered process automation framework.
-# Ignore directories containing user credentials, local state, and settings.
-# Learn more at https://abstra.io/docs
-.abstra/
-
 # Visual Studio Code
 #  Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore
 #  that can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
 #  and can be added to the global gitignore or merged into this file. However, if you prefer,
 #  you could uncomment the following to ignore the entire vscode folder
 # .vscode/
-.gemini/
+AGENTS.md
 
 # Ruff stuff:
 .ruff_cache/
@@ -218,3 +214,7 @@ __marimo__/
 # LaTeX
 Documentation/out/
 Documentation/main.tex
+
+# Experiments not to be committed yet
+nr-experiment.py
+cleaned_energy_data

@@ -1,0 +1,1 @@
+# This folder is to store numerical simulations of the physical systems we are interested in. Systems where data is already pre-generated (e.g., experimental data) are not part of the registry, and are stored in examples/data.
