@@ -1,17 +1,12 @@
-"""
-Unit tests for the loss functions defined in training.loss_functions.
-"""
+"""Unit tests for the critic loss utilities in the neural SDE module."""
 from __future__ import annotations
 
-import sys
 import torch
 import pytest
 
-sys.path.append(".")
-from parameters.hyperparameters import NetworkArchitecture
-from models.neural_sde import CriticNet
-from training.loss_functions import wasserstein_critic_loss
 from config import DEVICE
+from neural_dynamics.core.hyperparameters import NetworkArchitecture
+from neural_dynamics.models.sde import CriticNet, compute_critic_cost
 
 
 class TestWassersteinCriticLoss:
@@ -45,7 +40,7 @@ class TestWassersteinCriticLoss:
         critic, real_trajectories, fake_trajectories = setup_critic_and_data
         gradient_penalty_weight = 10.0
 
-        loss = wasserstein_critic_loss(
+        loss = compute_critic_cost(
             critic, real_trajectories, fake_trajectories, gradient_penalty_weight
         )
 
@@ -61,7 +56,7 @@ class TestWassersteinCriticLoss:
 
         critic.zero_grad()
 
-        loss = wasserstein_critic_loss(
+        loss = compute_critic_cost(
             critic, real_trajectories, fake_trajectories, gradient_penalty_weight
         )
 

@@ -7,11 +7,9 @@ including initialisation, forward pass, and network component access.
 
 import pytest
 import torch
-import sys
 
-sys.path.append(".")
-from parameters.hyperparameters import NetworkArchitecture, Hyperparameters
-from models.neural_sde import NeuralSDE
+from neural_dynamics.core.hyperparameters import NetworkArchitecture, Hyperparameters
+from neural_dynamics.models.sde import NeuralSDE
 
 
 class TestNeuralSDEInitialisation:
