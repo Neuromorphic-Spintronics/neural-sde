@@ -217,6 +217,8 @@ __marimo__/
 Documentation/out/
 Documentation/main.tex
 
+/notes/
+
 # Experiments not to be committed yet
 nr-experiment.py
 # cleaned_energy_data

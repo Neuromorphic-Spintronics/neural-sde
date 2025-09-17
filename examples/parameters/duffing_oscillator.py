@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Optional
 import math
-from config import DEVICE
+from neural_dynamics.config import DEVICE
 import torch
 
 @dataclass(frozen=True)

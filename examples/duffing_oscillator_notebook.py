@@ -8,15 +8,22 @@ app = marimo.App(width="full")
 def _():
     # --- 1. Setup: Imports and Configuration ---
     import os
+    import sys
+    from pathlib import Path
+
     import torch
     import matplotlib.pyplot as plt
     import numpy as np
-    from torch.utils.data import DataLoader, TensorDataset
 
-    from config import DEVICE
-    from neural_dynamics.core.hyperparameters import NetworkArchitecture
-    from neural_dynamics.models.base import DriftNet
-    from neural_dynamics.training.base import train_with_validation
+    # Ensure the project root is importable when running the notebook standalone.
+    project_root = Path(__file__).resolve().parents[1]
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+
+    from neural_dynamics.config import DEVICE
+    from neural_dynamics.core.hyperparameters import Hyperparameters
+    from neural_dynamics.models.ode import NeuralODE
+    from neural_dynamics.models.sde import NeuralSDE
     from neural_dynamics.training.evaluation import rollout_trajectory
     from neural_dynamics.core.utils import COLOURS
     from neural_dynamics.core.utils import set_symmetric_three_ticks
@@ -24,40 +31,27 @@ def _():
     from examples.systems.duffing_oscillator import DuffingOscillator
     from examples.parameters.duffing_oscillator import PhysicalDuffingParameters
 
-    class DuffingHyperparameters:
-        """Hyperparameters for the Duffing oscillator experiment."""
+    class NotebookConfig:
+        """Top-level configuration for the Duffing notebook."""
 
-        # Data generation
         NUM_TRAJECTORIES: int = 512
-        NO_NOISE: bool = True
-
-        # Training
-        LEARNING_RATE: float = 3e-4
-        NUM_EPOCHS: int = 512
-        BATCH_SIZE: int = 16
+        NO_NOISE: bool = False
         VALIDATION_SPLIT: float = 0.2
-        EARLY_STOPPING_PATIENCE: int = NUM_EPOCHS
+        RUN_GAN: bool = True
+        NUM_SDE_SAMPLES: int = 20
 
-        # Model
-        STATE_DIM: int = 3  # [q, v, xi]
-        DRIFT_NET_ARCH: NetworkArchitecture = NetworkArchitecture(
-            input_size=STATE_DIM + 1,  # state + time
-            hidden_sizes=[128, 128, 128],
-            output_size=STATE_DIM,
-        )
-
-    config = DuffingHyperparameters()
+    defaults = Hyperparameters.defaults()
 
     output_dir = os.path.join(
         "examples",
         "output",
-        f"duffing_epochs-{config.NUM_EPOCHS}_batch_size-{config.BATCH_SIZE}_lr-{config.LEARNING_RATE}",
+        f"duffing_epochs-{defaults.number_of_epochs}_batch_size-{defaults.batch_size}_lr-{defaults.learning_rates.drift}",
     )
     os.makedirs(output_dir, exist_ok=True)
     print(f"Output directory: {output_dir}")
 
     # --- 2. Data Generation (batched and vectorised) ---
-    if config.NO_NOISE:
+    if NotebookConfig.NO_NOISE:
         physical_params = PhysicalDuffingParameters(
             temperature=0.0, coloured_noise_intensity=0.0, timestep=0.01
         )
@@ -66,49 +60,17 @@ def _():
 
     dimless_params = physical_params.to_dimensionless()
     system = DuffingOscillator(dimless_params)
-    time_grid, trajectories = system.integrate_sde(batch_size=config.NUM_TRAJECTORIES)
+    time_grid, trajectories = system.integrate_sde(batch_size=NotebookConfig.NUM_TRAJECTORIES)
 
-    # Move data to device once
-    trajectories = trajectories.to(DEVICE)
-    time_grid = time_grid.to(DEVICE)
-    dt = float((time_grid[1] - time_grid[0]).item())
-
-    # --- 3. Build Model and Dataloaders ---
-    drift_net = DriftNet(config.DRIFT_NET_ARCH).to(DEVICE)
-
-    # Split into training/validation sets at the trajectory level
-    num_train = int((1.0 - config.VALIDATION_SPLIT) * trajectories.shape[0])
-    train_trajs = trajectories[:num_train]
-    val_trajs = trajectories[num_train:]
-
-    train_ds = TensorDataset(train_trajs)
-    val_ds = TensorDataset(val_trajs)
-    train_loader = DataLoader(train_ds, batch_size=config.BATCH_SIZE, shuffle=True, num_workers=0)
-    val_loader = DataLoader(val_ds, batch_size=config.BATCH_SIZE, shuffle=False, num_workers=0)
-
-    def batch_preparation_fn(raw_batch, device):
-        """Prepare per-step supervised pairs (inputs, dstate/dt) for training.
-
-        Net input is [q, v, xi, t]. Supervision uses finite-difference derivatives.
-        Shapes: raw_batch[0] -> [B, T, 3] -> flatten to [B*(T-1), ...].
-        """
-        (batch_trajs,) = raw_batch  # [B, T, 3]
-        current = batch_trajs[:, :-1, :]  # [B, T-1, 3]
-        target = batch_trajs[:, 1:, :]    # [B, T-1, 3]
-        B, Tm1, D = current.shape
-
-        # Broadcast times and flatten
-        times = time_grid[:-1].view(1, Tm1, 1).expand(B, Tm1, 1)
-        net_input = torch.cat([current, times], dim=-1).reshape(B * Tm1, D + 1).contiguous()
-
-        true_derivatives = ((target - current) / dt).reshape(B * Tm1, D).contiguous()
-        return net_input.to(device, non_blocking=True), true_derivatives.to(device, non_blocking=True)
+    trajectories = trajectories.to(torch.float32)
+    time_grid = time_grid.to(torch.float32)
     return (
         COLOURS,
         DEVICE,
-        batch_preparation_fn,
-        config,
-        drift_net,
+        NeuralODE,
+        NeuralSDE,
+        NotebookConfig,
+        defaults,
         np,
         os,
         output_dir,
@@ -117,38 +79,35 @@ def _():
         set_symmetric_three_ticks,
         time_grid,
         torch,
-        train_loader,
-        train_with_validation,
         trajectories,
-        val_loader,
     )
 
 
 @app.cell
 def _(
     DEVICE,
-    batch_preparation_fn,
-    config,
-    drift_net,
+    NeuralODE,
+    NotebookConfig,
+    defaults,
     np,
     os,
     output_dir,
+    time_grid,
     torch,
-    train_loader,
-    train_with_validation,
-    val_loader,
+    trajectories,
 ):
-    # --- 4. Train the Drift Network (vectorised, with validation) ---
-    trained_drift_net, train_losses, val_losses = train_with_validation(
-        model=drift_net,
-        train_loader=train_loader,
-        val_loader=val_loader,
-        num_epochs=config.NUM_EPOCHS,
-        learning_rate=config.LEARNING_RATE,
-        early_stopping_patience=config.EARLY_STOPPING_PATIENCE,
+    # --- 4. Train the drift network via the NeuralODE helper ---
+    neural_ode = NeuralODE.train(
+        hyperparameters=defaults,
+        trajectories=trajectories,
+        time_grid=time_grid,
         device=DEVICE,
-        batch_preparation_fn=batch_preparation_fn,
+        validation_split=NotebookConfig.VALIDATION_SPLIT,
+        early_stopping_patience=defaults.number_of_epochs,
     )
+
+    train_losses = neural_ode.training_losses
+    val_losses = neural_ode.validation_losses
 
     # Persist losses and learnt model for downstream SDE/GAN baselines
     np.savetxt(
@@ -156,34 +115,35 @@ def _(
         np.column_stack([train_losses, val_losses]),
         header="Training_Loss,Validation_Loss",
     )
-    torch.save(trained_drift_net.state_dict(), os.path.join(output_dir, "drift_net_state_dict.pt"))
-    return train_losses, trained_drift_net, val_losses
+    torch.save(neural_ode.drift_net.state_dict(), os.path.join(output_dir, "drift_net_state_dict.pt"))
+    return neural_ode, train_losses, val_losses
 
 
 @app.cell
 def _(
     DEVICE,
-    config,
+    defaults,
+    neural_ode,
     np,
     os,
     output_dir,
     rollout_trajectory,
     time_grid,
     torch,
-    trained_drift_net,
     trajectories,
 ):
     # --- 5. Simulate a trajectory with the trained drift (Neural ODE) ---
-    trained_drift_net.eval()
+    drift_net = neural_ode.drift_net
+    drift_net.eval()
     with torch.no_grad():
         # Use the first validation (or training if val empty) trajectory as reference
         ref_traj = trajectories[0].to(DEVICE)
-        y0 = ref_traj[0, : config.STATE_DIM].unsqueeze(0)
+        y0 = ref_traj[0, : defaults.state_dimension].unsqueeze(0)
 
         def drift_func_eval(t, y):
             t_tensor = torch.as_tensor([[t]], device=y.device, dtype=y.dtype)
             net_in = torch.cat([y, t_tensor], dim=1)
-            return trained_drift_net(net_in)
+            return drift_net(net_in)
 
         t0 = float(time_grid[0].item())
         dt_step = float((time_grid[1] - time_grid[0]).item())
@@ -208,7 +168,57 @@ def _(
 
 @app.cell
 def _(
+    DEVICE,
+    NeuralSDE,
+    NotebookConfig,
+    defaults,
+    neural_ode,
+    time_grid,
+    trajectories,
+):
+    neural_sde = NeuralSDE.train(
+        hyperparameters=defaults,
+        neural_ode=neural_ode,
+        trajectories=trajectories,
+        time_grid=time_grid,
+        device=DEVICE,
+        enable_adversarial=NotebookConfig.RUN_GAN,
+    )
+    return (neural_sde,)
+
+
+@app.cell
+def _(
+    DEVICE,
+    NotebookConfig,
+    defaults,
+    neural_sde,
+    time_grid,
+    torch,
+    trajectories,
+):
+    neural_sde_rollouts = []
+    if NotebookConfig.RUN_GAN and NotebookConfig.NUM_SDE_SAMPLES > 0:
+        sde_initial_state = (
+            trajectories[0, 0, : defaults.state_dimension]
+            .unsqueeze(0)
+            .to(DEVICE)
+        )
+        time_grid_device = time_grid.to(DEVICE)
+
+        with torch.no_grad():
+            for sample_idx in range(NotebookConfig.NUM_SDE_SAMPLES):
+                sample_rollout = neural_sde(sde_initial_state, time_grid_device)
+                neural_sde_rollouts.append(
+                    sample_rollout[:, 0, : defaults.state_dimension].cpu()
+                )
+    return (neural_sde_rollouts,)
+
+
+@app.cell
+def _(
     COLOURS,
+    neural_sde_rollouts,
     np,
     os,
     output_dir,
@@ -253,10 +263,25 @@ def _(
     v_true = ref_traj[:, 1].cpu().numpy()
     q_pred = pred_traj[:, 0].cpu().numpy()
     v_pred = pred_traj[:, 1].cpu().numpy()
+    traj_np = trajectories.detach().cpu().numpy()
+    n_show_phase = min(traj_np.shape[0], 200)
 
     fig2, axp = plt.subplots(figsize=(4.0, 4.0))
+    for i in range(n_show_phase):
+        axp.plot(
+            traj_np[i, :, 0],
+            traj_np[i, :, 1],
+            color="black",
+            linewidth=0.6,
+            alpha=0.05,
+        )
     axp.plot(q_true, v_true, color="black", linewidth=0.1)
     axp.plot(q_pred, v_pred, color="black", linewidth=1.0)
+
+    for sde_rollout in neural_sde_rollouts:
+        sde_q = sde_rollout[:, 0].numpy()
+        sde_v = sde_rollout[:, 1].numpy()
+        axp.plot(sde_q, sde_v, color=COLOURS[3], linewidth=1.0, alpha=0.1)
     axp.set_ylabel("$v(q(t))$ [ms$^{-1}$]")
     axp.set_xlabel("$q(t)$ [m]")
     axp.grid(False)
@@ -290,8 +315,13 @@ def _(
     # Background training trajectories
     n_show = min(traj.shape[0], 200)
     for i in range(n_show):
-        axQ.plot(t, traj[i, :, 0], color="black", linewidth=1.0, alpha=0.10)
-        axV.plot(t, traj[i, :, 1], color="black", linewidth=1.0, alpha=0.10)
+        axQ.plot(t, traj[i, :, 0], color="black", linewidth=1.0, alpha=0.05)
+        axV.plot(t, traj[i, :, 1], color="black", linewidth=1.0, alpha=0.05)
+
+    for sde_rollout in neural_sde_rollouts:
+        rollout_np = sde_rollout.numpy()
+        axQ.plot(t, rollout_np[:, 0], color=COLOURS[3], linewidth=1.0, alpha=0.3)
+        axV.plot(t, rollout_np[:, 1], color=COLOURS[3], linewidth=1.0, alpha=0.3)
 
     # Reference (solid) and Predicted (dashed)
     axQ.plot(t, ref[:, 0], color="black", linewidth=0.1)

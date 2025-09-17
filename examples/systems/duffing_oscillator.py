@@ -28,7 +28,7 @@ import torch
 from typing import Tuple, Optional, Callable
 from examples.parameters.duffing_oscillator import DuffingOscillatorParameters
 from neural_dynamics.core.integrators import stochastic_heun_method
-from config import DEVICE
+from neural_dynamics.config import DEVICE
 
 
 class DuffingOscillator:

@@ -6,7 +6,7 @@ from torch import Tensor
 from typing import Tuple, Any
 
 from examples.systems.registry import get_system_info
-from config import DEVICE
+from neural_dynamics.config import DEVICE
 from .integrators import auto_select_integrator
 
 def _integrate_batch_sde_trajectories(

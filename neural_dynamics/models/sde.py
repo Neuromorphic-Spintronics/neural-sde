@@ -8,7 +8,8 @@ from tqdm import tqdm
 
 from .base import DriftNet, FeedForwardNetwork, count_network_parameters
 from neural_dynamics.core.hyperparameters import Hyperparameters, NetworkArchitecture
-from config import DEVICE
+from neural_dynamics.models.ode import NeuralODE
+from neural_dynamics.config import DEVICE
 
 class DiffusionNet(FeedForwardNetwork):
     """Neural network approximating the diffusion term sigma(x, t, u)."""
@@ -208,6 +209,73 @@ class NeuralSDE(nn.Module):
                 self.trajectory_length = trajectory_length
 
         self._sqrt_timestep = math.sqrt(max(self.timestep, 1e-12))
+        self.generator_losses: list[float] = []
+        self.critic_losses: list[float] = []
+
+    @classmethod
+    def train(
+        cls,
+        *,
+        hyperparameters: Hyperparameters,
+        neural_ode: NeuralODE,
+        trajectories: Tensor,
+        time_grid: Tensor,
+        device: torch.device,
+        enable_adversarial: bool = False,
+        random_seed: int = 0,
+    ) -> "NeuralSDE":
+        """Train a neural SDE starting from a pretrained neural ODE."""
+
+        if trajectories.ndim != 3:
+            raise ValueError("trajectories must have shape [batch, time, state]")
+        if time_grid.ndim != 1:
+            raise ValueError("time_grid must be a 1D tensor")
+        if trajectories.shape[1] != time_grid.shape[0]:
+            raise ValueError("trajectory length must match time grid length")
+
+        model = cls(hyperparameters).to(device)
+        model.drift_net.load_state_dict(neural_ode.drift_net.state_dict())
+        model.drift_net.to(device)
+        model.drift_net.eval()
+
+        trajectories_device = trajectories.to(device)
+        time_grid_device = time_grid.to(device)
+
+        if enable_adversarial:
+            if model.diffusion_net is None or model.critic_net is None:
+                raise ValueError(
+                    "Adversarial training requires diffusion and critic networks"
+                )
+
+            critic_window = model.critic_net.trajectory_length
+            if critic_window is None:
+                raise ValueError("Critic network must define a trajectory window length")
+            if trajectories_device.shape[1] < critic_window:
+                raise ValueError(
+                    "Provided trajectories are shorter than the critic window length"
+                )
+
+            gan_trajectories = trajectories_device[:, :critic_window, : model.state_dimension]
+            gan_time_grid = time_grid_device[:critic_window]
+
+            generator_losses, critic_losses = fit_neural_sde_gan(
+                drift_network=model.drift_net,
+                diffusion_network=model.diffusion_net,
+                critic_network=model.critic_net,
+                time_grid=gan_time_grid,
+                stochastic_trajectories=gan_trajectories,
+                hyperparameters=hyperparameters,
+                random_seed=random_seed,
+            )
+            model.generator_losses = generator_losses
+            model.critic_losses = critic_losses
+        else:
+            if model.diffusion_net is not None:
+                with torch.no_grad():
+                    for param in model.diffusion_net.parameters():
+                        param.zero_()
+
+        return model
 
     @staticmethod
     def _infer_noise_dimension(

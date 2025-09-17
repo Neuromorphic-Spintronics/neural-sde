@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 
 from neural_dynamics.core.hyperparameters import NetworkArchitecture
 from neural_dynamics.models.sde import DiffusionNet
-from config import DEVICE
+from neural_dynamics.config import DEVICE
 from neural_dynamics.core import utils as plotting
 
 

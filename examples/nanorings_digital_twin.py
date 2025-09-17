@@ -53,11 +53,17 @@ def _():
     # --- 1. Setup: Imports and Configuration ---
     import marimo as mo
     import os
+    import sys
+    from pathlib import Path
     import torch
     import numpy as np
     from torch.utils.data import DataLoader, TensorDataset
 
-    from config import DEVICE
+    project_root = Path(__file__).resolve().parents[1]
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+
+    from neural_dynamics.config import DEVICE
     from neural_dynamics.core.hyperparameters import NetworkArchitecture
     from neural_dynamics.models.base import DriftNet
     from neural_dynamics.training.base import train_with_validation
