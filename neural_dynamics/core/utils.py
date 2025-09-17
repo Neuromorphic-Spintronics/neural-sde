@@ -150,7 +150,7 @@ def set_symmetric_three_ticks(ax, data, axis="y"):
     if max_val == 0:
         ticks = [-1, 0, 1]
     else:
-        tick_val = np.ceil(max_val * 10) / 10.0
+        tick_val = np.ceil(max_val * 2.0) / 2.0
         ticks = [-tick_val, 0.0, tick_val]
 
     if axis == "y":

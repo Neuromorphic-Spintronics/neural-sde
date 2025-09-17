@@ -9,6 +9,7 @@ def _():
     # --- 1. Setup: Imports and Configuration ---
     import os
     import sys
+    from dataclasses import replace
     from pathlib import Path
 
     import torch
@@ -40,7 +41,8 @@ def _():
         RUN_GAN: bool = True
         NUM_SDE_SAMPLES: int = 20
 
-    defaults = Hyperparameters.defaults()
+    # Any changes to the default hyperparameters can be made here
+    defaults = replace(Hyperparameters.defaults(), number_of_epochs=512)
 
     output_dir = os.path.join(
         "examples",
@@ -218,6 +220,8 @@ def _(
 @app.cell
 def _(
     COLOURS,
+    NotebookConfig,
+    neural_sde,
     neural_sde_rollouts,
     np,
     os,
@@ -241,19 +245,56 @@ def _(
 
     os.makedirs(output_dir, exist_ok=True)
 
-    # 1) Losses
-    fig1, ax = plt.subplots(figsize=(4.0, 4.0))
-    ax.semilogy(np.arange(len(train_losses)), train_losses, color="black", linewidth=0.1)
-    ax.semilogy(np.arange(len(val_losses)),   val_losses,   color="black", linewidth=1.0)
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("Loss")
-    ax.grid(False)
-    try:
-        ax.set_box_aspect(1)
-    except Exception:
-        pass
-    for s in ax.spines.values():
-        s.set_linewidth(1.0)
+    # 1) Loss panels (drift + optional GAN losses)
+    generator_losses = getattr(neural_sde, "generator_losses", []) or []
+    critic_losses = getattr(neural_sde, "critic_losses", []) or []
+
+    loss_panels = []
+    loss_panels.append(
+        (
+            "Drift",
+            np.arange(len(train_losses)),
+            [
+                ("Training", train_losses, "black", 1.2),
+                ("Validation", val_losses, "black", 2.0),
+            ],
+        )
+    )
+    if generator_losses:
+        loss_panels.append(
+            (
+                "Generator",
+                np.arange(len(generator_losses)),
+                [("Generator", generator_losses, COLOURS[3], 1.5)],
+            )
+        )
+    if critic_losses:
+        loss_panels.append(
+            (
+                "Critic",
+                np.arange(len(critic_losses)),
+                [("Critic", critic_losses, COLOURS[2], 1.5)],
+            )
+        )
+
+    fig1, axes = plt.subplots(1, len(loss_panels), figsize=(4 * len(loss_panels),4))
+    if len(loss_panels) == 1:
+        axes = [axes]
+
+    for ax, (title, epochs, series) in zip(axes, loss_panels):
+        for label, values, color, width in series:
+            ax.plot(epochs, values, label=label, color=color, linewidth=width)
+            if label == "Validation":
+                ax.set_ylabel("Overall Loss")
+            else:
+                ax.set_ylabel(f"{label} Loss")
+        ax.set_xlabel("Epoch")
+        ax.grid(False)
+        if len(series) > 1:
+            ax.legend()
+        for spine in ax.spines.values():
+            spine.set_linewidth(1.0)
+
     fig1.tight_layout()
     fig1.savefig(os.path.join(output_dir, "losses.pdf"), bbox_inches="tight", dpi=300)
     plt.show()
@@ -266,37 +307,54 @@ def _(
     traj_np = trajectories.detach().cpu().numpy()
     n_show_phase = min(traj_np.shape[0], 200)
 
-    fig2, axp = plt.subplots(figsize=(4.0, 4.0))
+    phase_fig, axp = plt.subplots(figsize=(4.0, 4.0))
+    training_alpha_phase = 1.0 if NotebookConfig.NO_NOISE else 0.1
     for i in range(n_show_phase):
         axp.plot(
             traj_np[i, :, 0],
             traj_np[i, :, 1],
             color="black",
             linewidth=0.6,
-            alpha=0.05,
+            alpha=training_alpha_phase,
         )
-    axp.plot(q_true, v_true, color="black", linewidth=0.1)
-    axp.plot(q_pred, v_pred, color="black", linewidth=1.0)
+    axp.plot(q_true, v_true, color="black", linewidth=0.6, alpha=training_alpha_phase)
+    axp.plot(q_pred, v_pred, color=COLOURS[2], linewidth=1.0)
 
     for sde_rollout in neural_sde_rollouts:
-        sde_q = sde_rollout[:, 0].numpy()
-        sde_v = sde_rollout[:, 1].numpy()
-        axp.plot(sde_q, sde_v, color=COLOURS[3], linewidth=1.0, alpha=0.1)
+        rollout_np = sde_rollout.numpy()
+        axp.plot(rollout_np[:, 0], rollout_np[:, 1], color=COLOURS[3], linewidth=1.0, alpha=0.1)
+
     axp.set_ylabel("$v(q(t))$ [ms$^{-1}$]")
     axp.set_xlabel("$q(t)$ [m]")
     axp.grid(False)
-    set_symmetric_three_ticks(axp, np.concatenate([q_true, q_pred, v_true, v_pred]), axis="both")
 
-    try:
-        axp.set_box_aspect(1)
-    except Exception:
-        pass
-    for s in axp.spines.values():
-        s.set_linewidth(1.0)
-    fig2.savefig(os.path.join(output_dir, "phase_space.pdf"), bbox_inches="tight", dpi=300)
+    # Determine limits from training, deterministic, and SDE trajectories; add padding
+    phase_components = [
+        q_true,
+        v_true,
+        q_pred,
+        v_pred,
+        traj_np[:n_show_phase, :, 0].ravel(),
+        traj_np[:n_show_phase, :, 1].ravel(),
+    ]
+    for sde_rollout in neural_sde_rollouts:
+        rollout_np = sde_rollout.numpy()
+        phase_components.append(rollout_np[:, 0])
+        phase_components.append(rollout_np[:, 1])
+
+    phase_values = np.concatenate(phase_components)
+    set_symmetric_three_ticks(axp, phase_values, axis="both")
+
+    x0, x1 = axp.get_xlim()
+    ymin_lim, ymax_lim = axp.get_ylim()
+    padding = 0.05
+    axp.set_xlim(x0 - padding * (x1 - x0), x1 + padding * (x1 - x0))
+    axp.set_ylim(ymin_lim - padding * (ymax_lim - ymin_lim), ymax_lim + padding * (ymax_lim - ymin_lim))
+
+    phase_fig.savefig(os.path.join(output_dir, "phase_space.pdf"), bbox_inches="tight", dpi=300)
     plt.show()
 
-    # 3) Position and velocity time series (side-by-side), with residuals beneath
+    # 3) Position/velocity time series; residuals only when no SDE rollouts
     from matplotlib.gridspec import GridSpec as _GS
 
     t = pred_time.cpu().numpy().ravel()
@@ -304,63 +362,79 @@ def _(
     pred = pred_traj.detach().cpu().numpy()
     ref = ref_traj.detach().cpu().numpy()
 
-    fig3 = plt.figure(figsize=(8.5, 5.3))
-    gs = _GS(nrows=2, ncols=2, figure=fig3, height_ratios=[1.0, 0.22], hspace=0.0, wspace=0.3)
+    show_residuals = len(neural_sde_rollouts) == 0
 
-    axQ = fig3.add_subplot(gs[0, 0])
-    axV = fig3.add_subplot(gs[0, 1])
-    axQres = fig3.add_subplot(gs[1, 0], sharex=axQ)
-    axVres = fig3.add_subplot(gs[1, 1], sharex=axV)
+    fig3 = plt.figure(figsize=(8.5, 5.3))
+    if show_residuals:
+        gs = _GS(nrows=2, ncols=2, figure=fig3, height_ratios=[1.0, 0.22], hspace=0.0, wspace=0.3)
+        axQ = fig3.add_subplot(gs[0, 0])
+        axV = fig3.add_subplot(gs[0, 1])
+        axQres = fig3.add_subplot(gs[1, 0], sharex=axQ)
+        axVres = fig3.add_subplot(gs[1, 1], sharex=axV)
+    else:
+        gs = _GS(nrows=1, ncols=2, figure=fig3, wspace=0.3)
+        axQ = fig3.add_subplot(gs[0, 0])
+        axV = fig3.add_subplot(gs[0, 1])
+
+    training_alpha = 1.0 if NotebookConfig.NO_NOISE else 0.1
 
     # Background training trajectories
     n_show = min(traj.shape[0], 200)
     for i in range(n_show):
-        axQ.plot(t, traj[i, :, 0], color="black", linewidth=1.0, alpha=0.05)
-        axV.plot(t, traj[i, :, 1], color="black", linewidth=1.0, alpha=0.05)
+        axQ.plot(t, traj[i, :, 0], color="black", linewidth=1.0, alpha=training_alpha)
+        axV.plot(t, traj[i, :, 1], color="black", linewidth=1.0, alpha=training_alpha)
 
+    # Neural SDE rollouts
     for sde_rollout in neural_sde_rollouts:
         rollout_np = sde_rollout.numpy()
-        axQ.plot(t, rollout_np[:, 0], color=COLOURS[3], linewidth=1.0, alpha=0.3)
-        axV.plot(t, rollout_np[:, 1], color=COLOURS[3], linewidth=1.0, alpha=0.3)
+        axQ.plot(t, rollout_np[:, 0], color=COLOURS[3], linewidth=1.0, alpha=0.1)
+        axV.plot(t, rollout_np[:, 1], color=COLOURS[3], linewidth=1.0, alpha=0.1)
 
-    # Reference (solid) and Predicted (dashed)
-    axQ.plot(t, ref[:, 0], color="black", linewidth=0.1)
+    # Reference and prediction
+    axQ.plot(t, ref[:, 0], color="black", linewidth=0.6, alpha=training_alpha)
     axQ.plot(t, pred[:, 0], color=COLOURS[2], linewidth=1.0)
-    axV.plot(t, ref[:, 1], color="black", linewidth=0.1)
+    axV.plot(t, ref[:, 1], color="black", linewidth=0.6, alpha=training_alpha)
     axV.plot(t, pred[:, 1], color=COLOURS[2], linewidth=1.0)
 
-    # Residuals
-    res_q = pred[:, 0] - ref[:, 0]
-    res_v = pred[:, 1] - ref[:, 1]
-    axQres.plot(t, res_q, color="black", linewidth=1.0)
-    axVres.plot(t, res_v, color="black", linewidth=1.0)
-    axQres.axhline(0.0, color="black", linewidth=0.8)
-    axVres.axhline(0.0, color="black", linewidth=0.8)
-    set_symmetric_three_ticks(axQres, res_q)
-    set_symmetric_three_ticks(axVres, res_v)
+    # Residuals (Neural ODE only)
+    if show_residuals:
+        res_q = pred[:, 0] - ref[:, 0]
+        res_v = pred[:, 1] - ref[:, 1]
+        axQres.plot(t, res_q, color="black", linewidth=1.0)
+        axVres.plot(t, res_v, color="black", linewidth=1.0)
+        axQres.axhline(0.0, color="black", linewidth=0.8)
+        axVres.axhline(0.0, color="black", linewidth=0.8)
+        set_symmetric_three_ticks(axQres, res_q)
+        set_symmetric_three_ticks(axVres, res_v)
 
-    # Labels
+    # Axis labels
     axQ.set_ylabel("$q(t)$")
     axV.set_ylabel("$v(t)$")
-    axQres.set_ylabel(r"$e_q$")
-    axVres.set_ylabel(r"$e_v$")
-    axQres.set_xlabel(r"$t$ [s]")
-    axVres.set_xlabel(r"$t$ [s]")
+    if show_residuals:
+        axQres.set_ylabel(r"$e_q$")
+        axVres.set_ylabel(r"$e_v$")
+        axQres.set_xlabel(r"$t$ [s]")
+        axVres.set_xlabel(r"$t$ [s]")
+        plt.setp(axQ.get_xticklabels(), visible=False)
+        plt.setp(axV.get_xticklabels(), visible=False)
+    else:
+        axQ.set_xlabel(r"$t$ [s]")
+        axV.set_xlabel(r"$t$ [s]")
 
-    # Hide x tick labels on main axes so residuals carry the x-axis
-    plt.setp(axQ.get_xticklabels(), visible=False)
-    plt.setp(axV.get_xticklabels(), visible=False)
-
-    for axm in (axQ, axV):
+    # Styling
+    for main_ax in (axQ, axV):
         try:
-            axm.set_box_aspect(1)
+            main_ax.set_box_aspect(1)
         except Exception:
             pass
 
-    for axm in (axQ, axV, axQres, axVres):
-        axm.grid(False)
-        for s in axm.spines.values():
-            s.set_linewidth(1.0)
+    axes_to_style = (axQ, axV)
+    if show_residuals:
+        axes_to_style = (*axes_to_style, axQres, axVres)
+    for axis in axes_to_style:
+        axis.grid(False)
+        for spine in axis.spines.values():
+            spine.set_linewidth(1.0)
 
     fig3.savefig(os.path.join(output_dir, "timeseries.pdf"), bbox_inches="tight", dpi=300)
     plt.show()
