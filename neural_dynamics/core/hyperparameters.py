@@ -91,6 +91,60 @@ class Hyperparameters:
     gradient_penalty_weight: float = 10.0
     batch_size: int = 64
 
+    @classmethod
+    def defaults(cls) -> "Hyperparameters":
+        """Return the canonical hyperparameter configuration for the library.
+
+        The defaults mirror the settings used in the Duffing oscillator notebook
+        and provide a well-tested starting point for other systems. They include
+        a three-layer drift network with 128 hidden units, matching diffusion and
+        critic architectures, and conservative learning rates for WGAN-GP.
+        """
+
+        state_dim = 3  # [q, v, xi]
+        input_dim = 0
+
+        drift_architecture = NetworkArchitecture(
+            input_size=state_dim + 1,  # state concatenated with time
+            hidden_sizes=[128, 128, 128],
+            output_size=state_dim,
+        )
+
+        noise_dimension = 1
+        diffusion_architecture = NetworkArchitecture(
+            input_size=state_dim + 1,
+            hidden_sizes=[128, 128, 128],
+            output_size=state_dim * noise_dimension,
+        )
+
+        critic_window = 32
+        critic_architecture = NetworkArchitecture(
+            input_size=critic_window * state_dim,
+            hidden_sizes=[128, 128],
+            output_size=1,
+        )
+
+        learning_rates = LearningRates(
+            drift=3.0e-4,
+            diffusion=3.0e-4,
+            critic=1.0e-4,
+            generator=1.0e-4,
+        )
+
+        return cls(
+            drift_network=drift_architecture,
+            diffusion_network=diffusion_architecture,
+            critic_network=critic_architecture,
+            state_dimension=state_dim,
+            input_dimension=input_dim,
+            timestep=0.01,
+            learning_rates=learning_rates,
+            number_of_epochs=512,
+            critic_updates=5,
+            gradient_penalty_weight=10.0,
+            batch_size=16,
+        )
+
 
 @dataclass(frozen=True)
 class NeuralSDETrainingConfig:
