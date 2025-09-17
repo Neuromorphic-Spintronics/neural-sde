@@ -57,13 +57,6 @@ def _():
     import numpy as np
     from torch.utils.data import DataLoader, TensorDataset
 
-    # Add project root to path to allow local imports
-    # We assume the examples/ folder remains as per the GitHub repository
-    import sys
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    if project_root not in sys.path:
-        sys.path.append(project_root)
-
     from config import DEVICE
     from neural_dynamics.core.hyperparameters import NetworkArchitecture
     from neural_dynamics.models.base import DriftNet
@@ -112,7 +105,7 @@ def _():
     os.makedirs(output_dir, exist_ok=True)
     print(f"Output directory: {output_dir}")
 
-    data_path = os.path.join(project_root, "examples/data/nanorings_dataset.pt")
+    data_path = os.path.join("examples", "data", "nanorings_dataset.pt")
     processed_data = torch.load(data_path)
     print(f"Loaded preprocessed data from {data_path}")
 

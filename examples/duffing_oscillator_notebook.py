@@ -8,15 +8,10 @@ app = marimo.App(width="full")
 def _():
     # --- 1. Setup: Imports and Configuration ---
     import os
-    import sys
     import torch
     import matplotlib.pyplot as plt
     import numpy as np
     from torch.utils.data import DataLoader, TensorDataset
-
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    if project_root not in sys.path:
-        sys.path.append(project_root)
 
     from config import DEVICE
     from neural_dynamics.core.hyperparameters import NetworkArchitecture

@@ -24,6 +24,9 @@ from examples.parameters.duffing_oscillator import PhysicalDuffingParameters
 from examples.systems.duffing_oscillator import DuffingOscillator
 from neural_dynamics.core.utils import set_default_plotting_style, style_axis_clean, COLOURS
 
+# Mark the entire module as slow due to long integrations and plotting
+pytestmark = pytest.mark.slow
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
