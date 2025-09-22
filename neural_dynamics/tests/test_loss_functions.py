@@ -4,7 +4,7 @@ from __future__ import annotations
 import torch
 import pytest
 
-from config import DEVICE
+from neural_dynamics.config import DEVICE
 from neural_dynamics.core.hyperparameters import NetworkArchitecture
 from neural_dynamics.models.sde import CriticNet, compute_critic_cost
 

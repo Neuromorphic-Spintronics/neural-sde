@@ -53,18 +53,17 @@ def _():
     # --- 1. Setup: Imports and Configuration ---
     import marimo as mo
     import os
+    import sys
+    from pathlib import Path
     import torch
     import numpy as np
     from torch.utils.data import DataLoader, TensorDataset
 
-    # Add project root to path to allow local imports
-    # We assume the examples/ folder remains as per the GitHub repository
-    import sys
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    if project_root not in sys.path:
-        sys.path.append(project_root)
+    project_root = Path(__file__).resolve().parents[1]
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
 
-    from config import DEVICE
+    from neural_dynamics.config import DEVICE
     from neural_dynamics.core.hyperparameters import NetworkArchitecture
     from neural_dynamics.models.base import DriftNet
     from neural_dynamics.training.base import train_with_validation
@@ -112,7 +111,7 @@ def _():
     os.makedirs(output_dir, exist_ok=True)
     print(f"Output directory: {output_dir}")
 
-    data_path = os.path.join(project_root, "examples/data/nanorings_dataset.pt")
+    data_path = os.path.join("examples", "data", "nanorings_dataset.pt")
     processed_data = torch.load(data_path)
     print(f"Loaded preprocessed data from {data_path}")
 

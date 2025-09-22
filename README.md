@@ -11,8 +11,18 @@
    uv sync
    ```
 
-2. **Run Duffing oscillator example**:
+## Examples
+
+2. **Run Duffing oscillator notebook (marimo)**:
+
+   To edit/live-run:
 
    ```bash
-      uv run examples.duffing_oscillator
+   uv run marimo edit examples/duffing_oscillator_notebook.py
+   ```
+
+3. **Run Nanorings digital twin notebook (marimo)**:
+
+   ```bash
+   uv run marimo edit examples/nanorings_digital_twin.py
    ```
