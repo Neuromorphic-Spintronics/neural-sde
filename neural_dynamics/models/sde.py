@@ -211,6 +211,7 @@ class NeuralSDE(nn.Module):
         self._sqrt_timestep = math.sqrt(max(self.timestep, 1e-12))
         self.generator_losses: list[float] = []
         self.critic_losses: list[float] = []
+        self.device = next(self.parameters()).device
 
     @classmethod
     def train(
@@ -234,6 +235,7 @@ class NeuralSDE(nn.Module):
             raise ValueError("trajectory length must match time grid length")
 
         model = cls(hyperparameters).to(device)
+        model.device = device
         model.drift_net.load_state_dict(neural_ode.drift_net.state_dict())
         model.drift_net.to(device)
         model.drift_net.eval()
@@ -337,7 +339,7 @@ class NeuralSDE(nn.Module):
         if time_grid.ndim != 1:
             raise ValueError("time_grid must be a 1D tensor")
 
-        device = next(self.parameters()).device
+        device = self.device
         dtype = initial_state.dtype
 
         state = initial_state.to(device=device, dtype=dtype)
@@ -401,7 +403,7 @@ class NeuralSDE(nn.Module):
                 f"{self.state_dimension}"
             )
 
-        device = next(self.parameters()).device
+        device = self.device
         dtype = state.dtype
 
         state = state.to(device=device, dtype=dtype)
