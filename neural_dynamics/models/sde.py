@@ -273,6 +273,10 @@ class NeuralSDE(nn.Module):
             model.critic_losses = critic_losses
         else:
             if model.diffusion_net is not None:
+                # In non-adversarial training, the diffusion network is not used.
+                # We zero out its parameters to effectively disable it, ensuring that
+                # it does not contribute to the model's output. This is the intended
+                # behavior for non-adversarial SDE training.
                 with torch.no_grad():
                     for param in model.diffusion_net.parameters():
                         param.zero_()
