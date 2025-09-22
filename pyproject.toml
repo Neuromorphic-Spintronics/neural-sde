@@ -29,11 +29,9 @@ docs = [
 
 [tool.pdoc]
 modules = [
-  "./models",
-  "./systems",
-  "./parameters",
-  "./training",
-  "./utils",
+  "neural_dynamics.core",
+  "neural_dynamics.models",
+  "neural_dynamics.training",
   "./config.py",
   "./main.py",
 ]
@@ -74,9 +72,13 @@ exclude = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["neural_dynamics/tests"]
 python_files = ["test_*.py"]
 addopts = ["-v", "--tb=short"]
+markers = [
+    "slow: long-running or heavyweight tests",
+    "sanity: quick import and smoke checks",
+]
 
 [tool.coverage.run]
 source = ["neural_dynamics"]

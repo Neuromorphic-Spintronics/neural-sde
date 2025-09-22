@@ -9,7 +9,7 @@ from typing import Callable, Optional, Protocol
 import torch
 from torch import nn, Tensor
 
-from config import DEVICE
+from neural_dynamics.config import DEVICE
 from neural_dynamics.core.hyperparameters import NetworkArchitecture
 
 

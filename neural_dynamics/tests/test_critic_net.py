@@ -10,7 +10,7 @@ import sys
 sys.path.append(".")
 from neural_dynamics.core.hyperparameters import NetworkArchitecture
 from neural_dynamics.models.sde import CriticNet
-from config import DEVICE
+from neural_dynamics.config import DEVICE
 
 
 class TestCriticNet:

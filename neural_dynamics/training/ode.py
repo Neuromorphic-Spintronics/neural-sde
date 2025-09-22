@@ -6,7 +6,7 @@ import torch
 from torch import Tensor
 from tqdm import tqdm
 
-from config import DEVICE
+from neural_dynamics.config import DEVICE
 from examples.systems.registry import get_system_info
 from neural_dynamics.core.integrators import (
     integrate_trajectory_with_step_method,
