@@ -101,7 +101,7 @@ def _(
     trajectories,
 ):
     # --- 4. Train the drift network via the NeuralODE helper ---
-    drift_net_path = os.path.join(output_dir, "drift_net_state_dict.pt")
+    drift_net_path = os.path.join(output_dir, "neural_ode_state_dict.pt")
     if os.path.exists(drift_net_path):
         # Load existing model if it exists ^
         from neural_dynamics.models.base import DriftNet
