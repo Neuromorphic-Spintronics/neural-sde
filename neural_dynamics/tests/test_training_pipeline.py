@@ -65,6 +65,7 @@ def test_training_pipeline_runs() -> None:
         early_stopping_patience=2,
     )
 
+    assert neural_ode.device == device, "NeuralODE device should be cached correctly"
     assert neural_ode.training_losses, "Expected training losses to be recorded"
     assert all(torch.isfinite(torch.tensor(neural_ode.training_losses)))
 
@@ -76,6 +77,8 @@ def test_training_pipeline_runs() -> None:
         device=device,
         enable_adversarial=False,
     )
+
+    assert neural_sde.device == device, "NeuralSDE device should be cached correctly"
 
     for name, parameter in neural_ode.drift_net.state_dict().items():
         sde_parameter = neural_sde.drift_net.state_dict()[name]

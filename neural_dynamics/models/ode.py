@@ -33,9 +33,10 @@ class NeuralODE(nn.Module):
         self.time_grid = time_grid
         self.training_losses = list(training_losses or [])
         self.validation_losses = list(validation_losses or [])
+        self.device = next(self.parameters()).device
 
     def forward(self, initial_state: Tensor, t_span: Tensor) -> Tensor:
-        model_device = next(self.drift_net.parameters()).device
+        model_device = self.device
         _, trajectory = integrate_trajectory_with_step_method(
             step_integrator=runge_kutta_4_step,
             drift_function=self.drift_function,
