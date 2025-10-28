@@ -18,6 +18,13 @@ from neural_dynamics.training.base import train_with_validation
 class NeuralODE(nn.Module):
     """Neural ODE model backed by a trained drift network."""
 
+    drift_net: DriftNet
+    hyperparameters: Hyperparameters
+    time_grid: Optional[Tensor]
+    training_losses: list[float]
+    validation_losses: list[float]
+    device: torch.device
+
     def __init__(
         self,
         *,
@@ -29,10 +36,10 @@ class NeuralODE(nn.Module):
     ) -> None:
         super().__init__()
         self.drift_net = drift_net
-        self.hyperparameters = hyperparameters
-        self.time_grid = time_grid
-        self.training_losses = list(training_losses or [])
-        self.validation_losses = list(validation_losses or [])
+        self.hyperparameters = hyperparameters  # type: ignore
+        self.time_grid = time_grid  # type: ignore
+        self.training_losses = list(training_losses or [])  # type: ignore
+        self.validation_losses = list(validation_losses or [])  # type: ignore
         self.device = next(self.parameters()).device
 
     def forward(self, initial_state: Tensor, t_span: Tensor) -> Tensor:
@@ -46,10 +53,10 @@ class NeuralODE(nn.Module):
             final_time=t_span[-1].item(),
             timestep=self.hyperparameters.timestep,
         )
-        return trajectory
+        return trajectory.permute(1, 0, 2)  # [batch, time, state]
 
     def drift_function(self, t: float, state: Tensor) -> Tensor:
-        time_tensor = torch.full((state.shape[0],), t, device=state.device)
+        time_tensor = torch.full((state.shape[0], 1), t, device=state.device, dtype=state.dtype)
         return self.drift_net.compute_drift(state, time_tensor)
 
     @classmethod
@@ -114,7 +121,7 @@ class NeuralODE(nn.Module):
             current = batch_trajs[:, :-1, :state_dim]
             target = batch_trajs[:, 1:, :state_dim]
 
-            times = time_grid_device[:-1].view(1, -1, 1).expand_as(current[..., :1])
+            times = time_grid_device[:-1].view(1, -1, 1).expand(batch_trajs.shape[0], -1, 1)
             net_input = torch.cat([current, times], dim=-1).reshape(-1, state_dim + 1)
             true_derivatives = ((target - current) / dt).reshape(-1, state_dim)
 

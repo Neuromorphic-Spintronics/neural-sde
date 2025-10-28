@@ -67,7 +67,7 @@ class TestNeuralSDEInitialisation:
         neural_sde = NeuralSDE(hyperparams)
 
         # Check that the noise dimension was inferred correctly
-        assert neural_sde.diffusion_net.noise_dimension == noise_dim
+        assert neural_sde.diffusion_net.noise_dimension == noise_dim  # type: ignore
 
     def test_infers_trajectory_length_correctly(self):
         """Test that trajectory length is correctly inferred from critic network."""
