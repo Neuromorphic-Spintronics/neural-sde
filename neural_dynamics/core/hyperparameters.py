@@ -79,7 +79,7 @@ class Hyperparameters:
     external_hidden_variables: int = 0  # Number of external hidden variables
 
     # Training parameters
-    timestep: float = 0.01  # Integration timestep for numerical methods, this perhaps could be adjusted dynamically to satisfy the CFL condition
+    timestep: float = 0.01  # Integration timestep for numerical methods, this perhaps could be adjusted dynamically to satisfy the CFL condition for PDEs
     learning_rates: LearningRates = LearningRates(
         drift=0.001,
         diffusion=0.001,
@@ -87,9 +87,13 @@ class Hyperparameters:
         generator=0.001,
     )  # Learning rates for drift, diffusion, and critic networks
     number_of_epochs: int = 100
-    critic_updates: int = 5
-    gradient_penalty_weight: float = 10.0
+    number_of_gan_epochs: int = 100
+    critic_updates: int = 5 # Number of critic updates per generator update (Arjovsky et al., 2017)
+    gradient_penalty_weight: float = 10.0 # Weight for WGAN-GP gradient penalty (Arjovsky et al., 2017)
     batch_size: int = 64
+    sde_l1_weight: float = 0.1 
+    moment_matching_weight: float = 0.0  # Weight for statistical moment matching in generator loss
+    moment_matching_enabled: bool = False  # Whether to enable statistical moment matching
 
     @classmethod
     def defaults(cls) -> "Hyperparameters":
@@ -97,7 +101,7 @@ class Hyperparameters:
 
         The defaults mirror the settings used in the Duffing oscillator notebook
         and provide a well-tested starting point for other systems. They include
-        a three-layer drift network with 128 hidden units, matching diffusion and
+        a three-layer drift network with 256 hidden units, matching diffusion and
         critic architectures, and conservative learning rates for WGAN-GP.
         """
 
@@ -106,52 +110,48 @@ class Hyperparameters:
 
         drift_architecture = NetworkArchitecture(
             input_size=state_dim + 1,  # state concatenated with time
-            hidden_sizes=[128, 128, 128],
+            hidden_sizes=[256, 256, 256],
             output_size=state_dim,
         )
 
         noise_dimension = 1
         diffusion_architecture = NetworkArchitecture(
             input_size=state_dim + 1,
-            hidden_sizes=[128, 128, 128],
+            hidden_sizes=[256, 256, 256],
             output_size=state_dim * noise_dimension,
         )
 
-        critic_window = 32
+        critic_window = 64
         critic_architecture = NetworkArchitecture(
             input_size=critic_window * state_dim,
-            hidden_sizes=[128, 128],
+            hidden_sizes=[256, 256],
             output_size=1,
         )
 
         learning_rates = LearningRates(
-            drift=3.0e-4,
-            diffusion=3.0e-4,
-            critic=1.0e-4,
-            generator=1.0e-4,
+            drift=5.0e-4,
+            diffusion=5.0e-4,
+            critic=2.0e-4,
+            generator=3.0e-4,
         )
 
         return cls(
+            state_dimension=state_dim,
+            input_dimension=input_dim,
+            timestep=25.0 / 255,
             drift_network=drift_architecture,
             diffusion_network=diffusion_architecture,
             critic_network=critic_architecture,
-            state_dimension=state_dim,
-            input_dimension=input_dim,
-            timestep=0.01,
             learning_rates=learning_rates,
-            number_of_epochs=512,
-            critic_updates=5,
-            gradient_penalty_weight=10.0,
-            batch_size=16,
+            batch_size=32,
+            number_of_epochs=192,
+            number_of_gan_epochs=320,
+            critic_updates=3,
+            gradient_penalty_weight=5.0,
+            sde_l1_weight=0.25,
+            moment_matching_weight=0.1,
+            moment_matching_enabled=False,
         )
 
 
-@dataclass(frozen=True)
-class NeuralSDETrainingConfig:
-    """Configuration for neural SDE training."""
-    learning_rate_generator: float = 1e-3
-    learning_rate_critic: float = 1e-3
-    batch_size: int = 64
-    num_epochs: int = 100
-    critic_updates: int = 5
-    gradient_penalty_weight: float = 10.0
+

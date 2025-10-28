@@ -1,6 +1,7 @@
 from __future__ import annotations
+import dataclasses
 import math
-from typing import Any, Callable, List, Optional, Tuple, overload
+from typing import Any, Callable, List, Optional, Tuple, overload, TYPE_CHECKING
 
 import torch
 from torch import Tensor, nn, optim
@@ -8,8 +9,10 @@ from tqdm import tqdm
 
 from .base import DriftNet, FeedForwardNetwork, count_network_parameters
 from neural_dynamics.core.hyperparameters import Hyperparameters, NetworkArchitecture
-from neural_dynamics.models.ode import NeuralODE
 from neural_dynamics.config import DEVICE
+
+if TYPE_CHECKING:
+    from neural_dynamics.models.ode import NeuralODE
 
 class DiffusionNet(FeedForwardNetwork):
     """Neural network approximating the diffusion term sigma(x, t, u)."""
@@ -37,8 +40,8 @@ class DiffusionNet(FeedForwardNetwork):
             )
 
         super().__init__(architecture, activation, device=device)
-        self.state_dimension = state_dimension
-        self.noise_dimension = noise_dimension
+        self.state_dimension = state_dimension  # type: ignore
+        self.noise_dimension = noise_dimension  # type: ignore
 
     def compute_diffusion(
         self, state: Tensor, time: Tensor, external_inputs: Optional[Tensor] = None
@@ -56,6 +59,9 @@ class DiffusionNet(FeedForwardNetwork):
 
 class CriticNet(FeedForwardNetwork):
     """Neural network that scores trajectories for the WGAN-GP critic."""
+
+    trajectory_length: int
+    _state_dimension: int
 
     def __init__(
         self,
@@ -85,47 +91,56 @@ class CriticNet(FeedForwardNetwork):
                 "architecture.input_size must be divisible by trajectory_length"
             )
 
-        self.architecture = architecture
-        self.trajectory_length = trajectory_length
-        self._state_dimension = architecture.input_size // trajectory_length
+        _state_dimension = architecture.input_size // trajectory_length
+        new_input_size = trajectory_length * _state_dimension
+        architecture = dataclasses.replace(architecture, input_size=new_input_size)
+
+        self.trajectory_length = trajectory_length  # type: ignore
+        self._state_dimension = _state_dimension  # type: ignore
 
         super().__init__(architecture, activation, device=device)
 
-    def score(self, trajectory_segment: Tensor) -> Tensor:
-        """Score a batch of trajectories.
+    def forward(self, trajectory_segment: Tensor) -> Tensor:
+        if trajectory_segment.ndim == 2:
+            # Assume it's already flattened [batch_size, trajectory_length * state_dim]
+            critic_input = trajectory_segment
+        elif trajectory_segment.ndim == 3:
+            batch_size, trajectory_length, state_dim = trajectory_segment.shape
 
-        Args:
-            trajectory_segment: Tensor of shape ``[batch, time, state_dim]``.
+            if trajectory_length != self.trajectory_length:
+                raise ValueError(
+                    "trajectory length does not match expected value "
+                    f"{self.trajectory_length}"
+                )
 
-        Returns:
-            Critic scores with shape ``[batch, 1]``.
+            if state_dim != self._state_dimension:
+                raise ValueError(
+                    "state dimension does not match expected value "
+                    f"{self._state_dimension}"
+                )
 
-        Raises:
-            ValueError: If the input tensor shape does not match configuration.
-        """
+            critic_input = trajectory_segment.reshape(batch_size, -1)
+        else:
+            raise ValueError("trajectory_segment must be 2D or 3D tensor")
 
-        if trajectory_segment.ndim != 3:
-            raise ValueError("trajectory_segment must be a 3D tensor")
-
-        batch_size, trajectory_length, state_dim = trajectory_segment.shape
-
-        if trajectory_length != self.trajectory_length:
-            raise ValueError(
-                "trajectory length does not match expected value "
-                f"{self.trajectory_length}"
-            )
-
-        if state_dim != self._state_dimension:
-            raise ValueError(
-                "state dimension does not match expected value "
-                f"{self._state_dimension}"
-            )
-
-        critic_input = trajectory_segment.reshape(batch_size, -1)
         return super().forward(critic_input)
 
 class NeuralSDE(nn.Module):
     """Neural SDE model composed of drift, diffusion, and critic networks."""
+
+    hyperparameters: Hyperparameters
+    state_dimension: int
+    input_dimension: int
+    timestep: float
+    drift_net: DriftNet
+    diffusion_net: Optional[DiffusionNet]
+    noise_dimension: int
+    critic_net: Optional[CriticNet]
+    trajectory_length: Optional[int]
+    _sqrt_timestep: float
+    generator_losses: list[float]
+    critic_losses: list[float]
+    device: torch.device
 
     def __init__(
         self,
@@ -139,10 +154,10 @@ class NeuralSDE(nn.Module):
 
         if isinstance(drift_or_hyperparameters, Hyperparameters):
             hyperparams = drift_or_hyperparameters
-            self.hyperparameters = hyperparams
-            self.state_dimension = hyperparams.state_dimension
-            self.input_dimension = hyperparams.input_dimension
-            self.timestep = hyperparams.timestep
+            self.hyperparameters = hyperparams  # type: ignore
+            self.state_dimension = hyperparams.state_dimension  # type: ignore
+            self.input_dimension = hyperparams.input_dimension  # type: ignore
+            self.timestep = hyperparams.timestep  # type: ignore
 
             self.drift_net = DriftNet(hyperparams.drift_network)
 
@@ -150,7 +165,7 @@ class NeuralSDE(nn.Module):
             noise_dimension = self._infer_noise_dimension(
                 diffusion_arch, self.state_dimension
             )
-            self.noise_dimension = noise_dimension
+            self.noise_dimension = noise_dimension  # type: ignore
             self.diffusion_net = (
                 None
                 if diffusion_arch is None
@@ -171,9 +186,9 @@ class NeuralSDE(nn.Module):
             self.critic_net = (
                 None
                 if critic_arch is None
-                else CriticNet(critic_arch, trajectory_length)
+                else CriticNet(critic_arch, trajectory_length)  # type: ignore
             )
-            self.trajectory_length = trajectory_length
+            self.trajectory_length = trajectory_length  # type: ignore
         else:
             if diffusion_net is None:
                 raise ValueError(
@@ -184,18 +199,18 @@ class NeuralSDE(nn.Module):
                     "hyperparameters must be provided when supplying explicit networks"
                 )
 
-            self.hyperparameters = hyperparameters
-            self.state_dimension = hyperparameters.state_dimension
-            self.input_dimension = hyperparameters.input_dimension
-            self.timestep = hyperparameters.timestep
+            self.hyperparameters = hyperparameters  # type: ignore
+            self.state_dimension = hyperparameters.state_dimension  # type: ignore
+            self.input_dimension = hyperparameters.input_dimension  # type: ignore
+            self.timestep = hyperparameters.timestep  # type: ignore
 
             self.drift_net = drift_or_hyperparameters
             self.diffusion_net = diffusion_net
-            self.noise_dimension = diffusion_net.noise_dimension
+            self.noise_dimension = diffusion_net.noise_dimension  # type: ignore
 
             if critic_net is not None:
                 self.critic_net = critic_net
-                self.trajectory_length = critic_net.trajectory_length
+                self.trajectory_length = critic_net.trajectory_length  # type: ignore
             else:
                 critic_arch = hyperparameters.critic_network
                 trajectory_length = self._infer_trajectory_length(
@@ -204,11 +219,11 @@ class NeuralSDE(nn.Module):
                 self.critic_net = (
                     None
                     if critic_arch is None
-                    else CriticNet(critic_arch, trajectory_length)
+                    else CriticNet(critic_arch, trajectory_length)  # type: ignore
                 )
-                self.trajectory_length = trajectory_length
+                self.trajectory_length = trajectory_length  # type: ignore
 
-        self._sqrt_timestep = math.sqrt(max(self.timestep, 1e-12))
+        self._sqrt_timestep = math.sqrt(max(self.timestep, 1e-12))  # type: ignore
         self.generator_losses: list[float] = []
         self.critic_losses: list[float] = []
         self.device = next(self.parameters()).device
@@ -218,7 +233,7 @@ class NeuralSDE(nn.Module):
         cls,
         *,
         hyperparameters: Hyperparameters,
-        neural_ode: NeuralODE,
+        neural_ode: "NeuralODE",
         trajectories: Tensor,
         time_grid: Tensor,
         device: torch.device,
@@ -377,7 +392,7 @@ class NeuralSDE(nn.Module):
             trajectory[idx] = next_state
             state = next_state
 
-        return trajectory
+        return trajectory.permute(1, 0, 2)  # [batch, time, state]
 
     def _simulate_with_inputs(
         self, external_inputs: Tensor, initial_state: Tensor, initial_time: float
@@ -529,13 +544,44 @@ def compute_critic_cost(
 def compute_generator_cost(
     critic_network: CriticNet,
     fake_trajectories: Tensor,
+    real_trajectories: Tensor | None = None,
+    moment_matching_weight: float = 0.0,
+    moment_matching_enabled: bool = False,
 ) -> Tensor:
     """
     Calculate the generator's loss, which aims to maximise the critic's score
-    for fake trajectories.
+    for fake trajectories and optionally match statistical moments.
+    
+    Args:
+        critic_network: The critic network
+        fake_trajectories: Generated trajectories [batch, time, state]
+        real_trajectories: Real trajectories for moment matching [batch, time, state]
+        moment_matching_weight: Weight for moment matching loss
+        moment_matching_enabled: Whether to enable moment matching
     """
     fake_scores = critic_network(fake_trajectories.reshape(fake_trajectories.shape[0], -1))
-    return -fake_scores.mean()
+    adversarial_loss = -fake_scores.mean()
+    
+    if moment_matching_enabled and real_trajectories is not None:
+        # Compute mean and variance along batch dimension for each timestep
+        fake_mean = torch.mean(fake_trajectories, dim=0)  # [time, state]
+        real_mean = torch.mean(real_trajectories, dim=0)  # [time, state]
+        
+        fake_var = torch.var(fake_trajectories, dim=0, unbiased=False)  # [time, state]
+        real_var = torch.var(real_trajectories, dim=0, unbiased=False)  # [time, state]
+        
+        # Mean matching loss
+        mean_loss = torch.mean((fake_mean - real_mean).pow(2))
+        
+        # Variance matching loss
+        var_loss = torch.mean((fake_var - real_var).pow(2))
+        
+        # Combined moment matching loss
+        moment_loss = mean_loss + var_loss
+        
+        return adversarial_loss + moment_matching_weight * moment_loss
+    
+    return adversarial_loss
 
 
 def train_critic_step(
@@ -561,12 +607,38 @@ def train_generator_step(
     generator_optimiser: optim.Optimizer,
     critic_network: CriticNet,
     fake_trajectories: Tensor,
+    real_trajectories: Tensor,
+    sde_l1_weight: float,
+    moment_matching_weight: float = 0.0,
+    moment_matching_enabled: bool = False,
 ) -> float:
     """
     Perform a single training step for the generator networks (drift and diffusion).
+    
+    Args:
+        generator_optimiser: Optimizer for generator networks
+        critic_network: The critic network
+        fake_trajectories: Generated trajectories
+        real_trajectories: Ground truth trajectories
+        sde_l1_weight: Weight for L1 pathwise loss
+        moment_matching_weight: Weight for statistical moment matching
+        moment_matching_enabled: Whether to enable moment matching
     """
     generator_optimiser.zero_grad()
-    generator_cost = compute_generator_cost(critic_network, fake_trajectories)
+    
+    # Adversarial loss with optional moment matching
+    adversarial_loss = compute_generator_cost(
+        critic_network, fake_trajectories, real_trajectories, moment_matching_weight, moment_matching_enabled
+    )
+    
+    # Pathwise L1 loss
+    l1_loss = nn.functional.smooth_l1_loss(
+        fake_trajectories.contiguous(), real_trajectories.contiguous()
+    )
+    
+    # Combined loss
+    generator_cost = adversarial_loss + sde_l1_weight * l1_loss
+    
     generator_cost.backward()
     generator_optimiser.step()
     return generator_cost.item()
@@ -589,15 +661,25 @@ def fit_neural_sde_gan(
 
     # Freeze the drift network by setting it to evaluation mode and excluding its parameters from the optimizer
     drift_network.eval()
-    generator_optimiser = optim.Adam(diffusion_network.parameters(), lr=hyperparameters.learning_rates.generator)
-    critic_optimiser = optim.Adam(critic_network.parameters(), lr=hyperparameters.learning_rates.critic)
+    generator_optimiser = optim.Adam(
+        diffusion_network.parameters(), lr=hyperparameters.learning_rates.generator
+    )
+    critic_optimiser = optim.Adam(
+        critic_network.parameters(), lr=hyperparameters.learning_rates.critic
+    )
 
     generator_losses = []
     critic_losses = []
 
+    stochastic_trajectories = stochastic_trajectories.to(DEVICE)
     num_batches = math.ceil(stochastic_trajectories.shape[0] / hyperparameters.batch_size)
 
-    with tqdm(range(hyperparameters.number_of_epochs), desc="Training Neural SDE GAN") as pbar:
+    # Create SDE model outside the loop for efficiency
+    sde = NeuralSDE(drift_network, diffusion_network, hyperparameters).to(DEVICE)
+    time_grid = time_grid.to(DEVICE)
+    num_epochs = hyperparameters.number_of_gan_epochs
+
+    with tqdm(range(num_epochs), desc="Training Neural SDE GAN") as pbar:
         for epoch in pbar:
             epoch_critic_losses = []
             epoch_generator_losses = []
@@ -611,32 +693,48 @@ def fit_neural_sde_gan(
                     continue
 
                 initial_states = real_trajectories[:, 0, :]
-                sde = NeuralSDE(drift_network, diffusion_network, hyperparameters)
 
-                with torch.no_grad():
-                    fake_trajectories_for_critic = sde(initial_states, time_grid).permute(1, 0, 2)
+                # Generate trajectories once per batch
+                fake_trajectories = sde(initial_states, time_grid)
+                fake_for_critic = fake_trajectories.detach()
 
-                # Train critic
+                # Train critic (critic_updates times, but now it's 1)
                 for _ in range(hyperparameters.critic_updates):
                     critic_loss = train_critic_step(
                         critic_optimiser,
                         critic_network,
                         real_trajectories,
-                        fake_trajectories_for_critic,
+                        fake_for_critic,
                         hyperparameters.gradient_penalty_weight,
                     )
                     epoch_critic_losses.append(critic_loss)
 
-                # Train generator
-                fake_trajectories_for_generator = sde(initial_states, time_grid).permute(1, 0, 2)
-
+                # Train generator using the gradient-enabled trajectories
                 generator_loss = train_generator_step(
-                    generator_optimiser, critic_network, fake_trajectories_for_generator
+                    generator_optimiser,
+                    critic_network,
+                    fake_trajectories,
+                    real_trajectories,
+                    hyperparameters.sde_l1_weight,
+                    moment_matching_weight=getattr(hyperparameters, 'moment_matching_weight', 0.0),
+                    moment_matching_enabled=getattr(hyperparameters, 'moment_matching_enabled', False),
                 )
                 epoch_generator_losses.append(generator_loss)
 
-            generator_losses.append(sum(epoch_generator_losses) / len(epoch_generator_losses))
-            critic_losses.append(sum(epoch_critic_losses) / len(epoch_critic_losses))
-            pbar.set_postfix({"Gen Loss": generator_losses[-1], "Critic Loss": critic_losses[-1]})
+            if epoch_generator_losses:
+                generator_losses.append(
+                    sum(epoch_generator_losses) / len(epoch_generator_losses)
+                )
+            else:
+                generator_losses.append(0.0)
+
+            if epoch_critic_losses:
+                critic_losses.append(sum(epoch_critic_losses) / len(epoch_critic_losses))
+            else:
+                critic_losses.append(0.0)
+
+            pbar.set_postfix(
+                {"Gen Loss": generator_losses[-1], "Critic Loss": critic_losses[-1]}
+            )
 
     return generator_losses, critic_losses

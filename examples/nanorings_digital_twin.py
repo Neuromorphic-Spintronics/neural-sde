@@ -5,251 +5,760 @@ app = marimo.App(width="full")
 
 
 @app.cell
-def _(mo):
-    mo.md(
-        r"""
-    # Neural ODE for nanoring array dynamics
-
-    This notebook trains a **Neural Ordinary Differential Equation (Neural ODE)** to model the dynamics of a nanoring array's anisotropic magnetoresistance (AMR) in response to an external magnetic field (H).
-
-    The pipeline has two stages: a one-time preprocessing script and this training notebook.
-
-    ### Preprocessing Script (`examples/preprocess_nanorings_data.py`)
-
-    Raw AMR and H-field trajectories are first loaded and filtered so that the mean AMR signal lies within a narrow, consistent range (though this could be extended to the full signal range). Each trajectory is then split into a transient part and a main sequence, with AMR and H normalised independently.  
-
-    From the transient part, the last few points of the AMR and H signals are extracted as contexts (`c_y`, `c_H`, which are akin to but strictly not initial conditions). These serve as trajectory-specific embeddings that condition the model; they are not initial conditions in the strict sense.  
-
-    To help capture periodicity, heuristic sinusoidal time features $\sin(2\pi t)$ and $\sin(4\pi t)$ are added.
-
-    Finally, all training and validation data, along with contexts, are saved into a single file: `data/processed/nanorings_dataset.pt`. This file is then loaded by the training notebook.
-
-    ### Training Notebook (This File)
-
-    The training notebook loads the processed dataset and trains a `DriftNet` model using the `train_with_validation` function from the `neural_dynamics` library, which handles training, validation, and early stopping.  
-
-    For inference, a single validation trajectory is selected. The model is conditioned on its contexts, and the `rollout_trajectory` function integrates the learned $\frac{dy}{dt}$ to produce a full prediction. The predicted trajectory is then compared to the ground truth.
-
-    ### The Neural ODE Model
-
-    The model learns the function $f$ in the ODE
-
-    $$
-    \frac{dy}{dt} = f\Big(y(t), H(t), \sin(\omega t), \sin(2\omega t), c_H, c_y\Big)
-    $$
-
-    where:
-    - $y(t)$ is the AMR signal (the state being predicted),  
-    - $H(t)$ is the external driving magnetic field,  
-    - $\sin(\omega t), \sin(2\omega t)$ are periodic time features,  
-    - $c_H, c_y$ are the context vectors conditioning predictions on a given trajectory.
-    """
-    )
-    return
-
-
-@app.cell
 def _():
-    # --- 1. Setup: Imports and Configuration ---
-    import marimo as mo
-    import os
+    """Import dependencies and configure project paths."""
     import sys
     from pathlib import Path
-    import torch
-    import numpy as np
-    from torch.utils.data import DataLoader, TensorDataset
 
+    # Ensure project root is in path for local imports
     project_root = Path(__file__).resolve().parents[1]
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
 
+    import os
+    import numpy as np
+    import torch
+    import matplotlib.pyplot as plt
+
     from neural_dynamics.config import DEVICE
+    from neural_dynamics.core.utils import (
+        COLOURS,
+        compare_statistics,
+        compute_statistics,
+        sample_sde_rollouts,
+    )
     from neural_dynamics.core.hyperparameters import NetworkArchitecture
     from neural_dynamics.models.base import DriftNet
+    from neural_dynamics.models.ode import NeuralODE
+    from neural_dynamics.models.sde import NeuralSDE
     from neural_dynamics.training.base import train_with_validation
     from neural_dynamics.training.evaluation import rollout_trajectory
-    from examples.utils.plotting import plot_nanoring_results
-
-    # --- 2. Load Config and Preprocessed Data ---
-    class NanoringsHyperparameters:
-        """Hyperparameters for the nanorings digital twin experiment."""
-
-        # Training parameters
-        LEARNING_RATE: float = 3.4e-4
-        NUM_EPOCHS: int = 1024
-        BATCH_SIZE: int = 16
-        VALIDATION_SPLIT: float = 0.2
-        EARLY_STOPPING_PATIENCE: int = NUM_EPOCHS # in principle this could be reduced
-
-        # Data sampling parameters
-        PERCENTAGE_OF_FILES_TO_LOAD: float = 1.0
-        PERCENTAGE_OF_MAIN_SEQUENCE_TO_USE: float = 0.1
-        TARGET_CHANNEL: int = 0
-
-        # System dynamics parameters
-        SAMPLE_RATE: int = 3200  # Hz
-        H_FIELD_AMPLITUDE_UPDATE_RATE: int = 100  # Timesteps
-        TRANSIENT_LENGTH: int = 100
-        CONTEXT_POINTS: int = 5
-
-        # Model architecture
-        DRIFT_NET_ARCH: NetworkArchitecture = NetworkArchitecture(
-            # amr, h, sin(wt), sin(2wt), h_ctx, amr_ctx
-            input_size=1 + 1 + 2 + CONTEXT_POINTS + CONTEXT_POINTS,
-            hidden_sizes=[128, 128, 128],
-            output_size=1,
-        )
-
-
-    config = NanoringsHyperparameters()
-
-    output_dir = os.path.join(
-        "examples",
-        "output",
-        f"epochs-{config.NUM_EPOCHS}_batch_size-{config.BATCH_SIZE}_lr-{config.LEARNING_RATE}",
+    from neural_dynamics.utils.training_helpers import (
+        DEFAULT_METRIC_FILENAMES,
+        DEFAULT_MODEL_FILENAMES,
     )
-    os.makedirs(output_dir, exist_ok=True)
-    print(f"Output directory: {output_dir}")
-
-    data_path = os.path.join("examples", "data", "nanorings_dataset.pt")
-    processed_data = torch.load(data_path)
-    print(f"Loaded preprocessed data from {data_path}")
-
-    # --- 3. Build Model ---
-    initial_drift_net = DriftNet(config.DRIFT_NET_ARCH).to(DEVICE)
+    from examples.systems.parameters.nanorings import NanoringsHyperparameters
+    from examples.utils.plotting import plot_nanoring_results, setup_matplotlib_style
+    from torch.utils.data import DataLoader, TensorDataset
     return (
+        COLOURS,
+        DEFAULT_METRIC_FILENAMES,
+        DEFAULT_MODEL_FILENAMES,
         DEVICE,
         DataLoader,
+        DriftNet,
+        NanoringsHyperparameters,
+        NetworkArchitecture,
+        NeuralODE,
+        NeuralSDE,
+        Path,
         TensorDataset,
-        config,
-        initial_drift_net,
-        mo,
+        compare_statistics,
+        compute_statistics,
         np,
         os,
-        output_dir,
         plot_nanoring_results,
-        processed_data,
+        plt,
         rollout_trajectory,
+        sample_sde_rollouts,
+        setup_matplotlib_style,
         torch,
         train_with_validation,
     )
 
 
 @app.cell
+def _(NanoringsHyperparameters, Path, torch):
+    """
+    Load preprocessed data (already standardized per-trajectory during preprocessing).
+    Data is standardized: zero mean, unit variance per trajectory.
+    """
+    # Load hyperparameters and dataset
+    config = NanoringsHyperparameters(NUMBER_OF_GAN_EPOCHS=1024, NUMBER_OF_EPOCHS=1024)
+    data_path = Path("examples/data/nanorings_dataset.pt")
+    raw_data = torch.load(data_path)
+
+    processed_data = {}
+    for key, value in raw_data.items():
+        if isinstance(value, torch.Tensor):
+            processed_data[key] = value.to("cpu")
+        else:
+            processed_data[key] = value
+
+    print(f"\nLoaded dataset with {processed_data['train_amr_main_norm'].shape[0]} training and {processed_data['val_amr_main_norm'].shape[0]} validation trajectories")
+    print(f"Sequence length: {processed_data['train_amr_main_norm'].shape[1]} timesteps")
+    print("\nData is already standardized per-trajectory (zero mean, unit variance)")
+    print(f"Training AMR - mean: {processed_data['train_amr_main_norm'].mean():.4f}, std: {processed_data['train_amr_main_norm'].std():.4f}")
+    print(f"Training H-field - mean: {processed_data['train_h_main'].mean():.4f}, std: {processed_data['train_h_main'].std():.4f}")
+    return config, processed_data
+
+
+@app.cell
+def _(COLOURS, plt, processed_data, setup_matplotlib_style):
+    """Visualise per-signal standardisation with separate subplots."""
+    setup_matplotlib_style()
+
+    print("\n" + "="*60)
+    print("Visualising Per-Signal Standardisation")
+    print("="*60)
+
+    train_amr = processed_data["train_amr_main_norm"].numpy()
+    time_grid_viz = processed_data["time_grid"].numpy()
+
+    # Each signal has 100 repetitions
+    reps_per_signal = 100
+    num_signals = train_amr.shape[0] // reps_per_signal
+
+    print(f"Total trajectories: {train_amr.shape[0]}")
+    print(f"Number of signals: {num_signals}")
+    print(f"Repetitions per signal: {reps_per_signal}")
+
+    # Create square subplots: one per signal
+    fig_height = 4 * num_signals
+    fig, axes = plt.subplots(num_signals, 1, figsize=(8, fig_height), sharex=True)
+    if num_signals == 1:
+        axes = [axes]
+
+    for sig_idx in range(num_signals):
+        ax = axes[sig_idx]
+        start_idx = sig_idx * reps_per_signal
+        end_idx = start_idx + reps_per_signal
+        signal_data = train_amr[start_idx:end_idx]
+
+        # Plot all 100 repetitions with transparency
+        for i in range(reps_per_signal):
+            ax.plot(time_grid_viz, signal_data[i], alpha=0.1, color='black', linewidth=0.5)
+
+        # Plot mean and std envelope for this signal
+        mean_signal = signal_data.mean(axis=0)
+        std_signal = signal_data.std(axis=0)
+        ax.plot(time_grid_viz, mean_signal, color=COLOURS[3], linewidth=2, label='Mean', zorder=10)
+        ax.fill_between(time_grid_viz, 
+                         mean_signal - std_signal, 
+                         mean_signal + std_signal, 
+                         alpha=0.3, color=COLOURS[3], label=r'$\pm 1\sigma$')
+
+        ax.set_ylabel(r'Standardised AMR')
+        ax.legend(loc='upper right')
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+
+    axes[-1].set_xlabel(r'Time [s]')
+    plt.tight_layout()
+    plt.show()
+
+    print("\nOverall Dataset Statistics:")
+    print(f"  Mean across all points: {train_amr.mean():.4f} (expected: ~0.0)")
+    print(f"  Std across all points: {train_amr.std():.4f} (expected: ~1.0)")
+
+    print("\nPer-Signal Statistics:")
+    for sig_idx in range(num_signals):
+        start_idx = sig_idx * reps_per_signal
+        end_idx = start_idx + reps_per_signal
+        signal_data = train_amr[start_idx:end_idx]
+        print(f"  Signal {sig_idx+1}: μ={signal_data.mean():.6f}, σ={signal_data.std():.6f}")
+
+    return
+
+
+@app.cell
+def _(DEVICE, DriftNet, NetworkArchitecture, config, os):
+    """Define drift network architecture for Neural ODE.
+
+    The network learns the deterministic dynamics: dx/dt = f(x, t, u)
+    Input features: AMR(1), H-field(1), time encoding(2), context features(10)
+    """
+    drift_net_arch = NetworkArchitecture(
+        input_size=1 + 1 + 2 + config.CONTEXT_POINTS + config.CONTEXT_POINTS,  # Total: 14 features (5 context points for AMR and H)
+        hidden_sizes=[512, 512, 512, 256],  # Large capacity for complex AMR dynamics
+        output_size=1,  # Single state: AMR signal
+    )
+
+    initial_drift_net = DriftNet(drift_net_arch).to(DEVICE)
+    print(f"Drift network: {sum(p.numel() for p in initial_drift_net.parameters()):,} parameters")
+
+    output_directory = os.path.join(
+        "examples/output",
+        f"nanorings_ode_epochs-{config.NUMBER_OF_EPOCHS}_bs-{config.BATCH_SIZE}_lr-{config.LEARNING_RATE}",
+    )
+    os.makedirs(output_directory, exist_ok=True)
+    print(f"Output directory: {output_directory}")
+    return drift_net_arch, initial_drift_net, output_directory
+
+
+@app.cell
 def _(
+    DEFAULT_METRIC_FILENAMES,
+    DEFAULT_MODEL_FILENAMES,
     DEVICE,
     DataLoader,
     TensorDataset,
     config,
     initial_drift_net,
-    mo,
-    np,
     os,
-    output_dir,
+    output_directory,
     processed_data,
     torch,
     train_with_validation,
 ):
-    # --- 4. Train the Model ---
-    # Move data tensors to DEVICE once to avoid per-batch transfers
-    for key in processed_data:
-        if isinstance(processed_data[key], torch.Tensor):
-            processed_data[key] = processed_data[key].to(DEVICE)
+    """Train Neural ODE.
 
-    # Trajectory-level datasets; per-batch vectorisation flattens (B, T-1) -> (B*(T-1), ...)
-    train_dataset = TensorDataset(
-        processed_data["train_h_context"],
-        processed_data["train_amr_context"],
-        processed_data["train_h_main"],
-        processed_data["train_amr_main_norm"],
-        processed_data["train_sin_time_1"],
-        processed_data["train_sin_time_2"],
-    )
-    val_dataset = TensorDataset(
-        processed_data["val_h_context"],
-        processed_data["val_amr_context"],
-        processed_data["val_h_main"],
-        processed_data["val_amr_main_norm"],
-        processed_data["val_sin_time_1"],
-        processed_data["val_sin_time_2"],
-    )
+    The ODE learns: dx/dt = f(x, t, u).
+    """
+    # Check for saved model checkpoint
+    ode_model_path = os.path.join(output_directory, DEFAULT_MODEL_FILENAMES["neural_ode"])
+    train_losses_path = os.path.join(output_directory, DEFAULT_METRIC_FILENAMES["train_losses"])
+    val_losses_path = os.path.join(output_directory, DEFAULT_METRIC_FILENAMES["val_losses"])
 
-    train_loader = DataLoader(train_dataset, batch_size=config.BATCH_SIZE, shuffle=True, num_workers=0)
-    val_loader = DataLoader(val_dataset, batch_size=config.BATCH_SIZE, shuffle=False, num_workers=0)
+    if os.path.exists(ode_model_path) and os.path.exists(train_losses_path) and os.path.exists(val_losses_path):
+        print("Loading existing Neural ODE from checkpoint...")
+        trained_drift_net = initial_drift_net
+        trained_drift_net.load_state_dict(torch.load(ode_model_path, map_location=DEVICE))
+        trained_drift_net.to(DEVICE)
 
-    def batch_preparation_fn(raw_batch, device):
-        """Convert a batch of full trajectories into per-step supervised pairs.
+        # Load training history
+        training_losses = list(torch.load(train_losses_path, map_location="cpu"))
+        validation_losses = list(torch.load(val_losses_path, map_location="cpu"))
+        print(f"Loaded Neural ODE - final train loss: {training_losses[-1]:.6f}, val loss: {validation_losses[-1]:.6f}")
+    else:
+        print("Training Neural ODE from scratch...")
+        # Move all tensors to device once
+        for tensor_key in processed_data:
+            if isinstance(processed_data[tensor_key], torch.Tensor):
+                processed_data[tensor_key] = processed_data[tensor_key].to(DEVICE)
 
-        This prepares inputs for a drift network f that predicts dy/dt from
-        features at time t. We construct one training example per time step
-        and trajectory (horizon-of-one), and use finite differences as the
-        supervision target: (y[t+1] - y[t]) / dt.
+        # Create trajectory-level datasets
+        train_dataset = TensorDataset(
+            processed_data["train_h_context"],
+            processed_data["train_amr_context"],
+            processed_data["train_h_main"],
+            processed_data["train_amr_main_norm"],
+            processed_data["train_sin_time_1"],
+            processed_data["train_sin_time_2"],
+        )
+        val_dataset = TensorDataset(
+            processed_data["val_h_context"],
+            processed_data["val_amr_context"],
+            processed_data["val_h_main"],
+            processed_data["val_amr_main_norm"],
+            processed_data["val_sin_time_1"],
+            processed_data["val_sin_time_2"],
+        )
 
-        Args:
-            raw_batch: Tuple of tensors with shapes:
-                - h_ctx:       [B, C_h]  trajectory-level H contexts
-                - amr_ctx:     [B, C_y]  trajectory-level AMR contexts
-                - h_main:      [B, T]    H time series
-                - amr_main:    [B, T]    AMR time series (target signal y)
-                - sin_t1:      [B, T]    sin(2π t) feature
-                - sin_t2:      [B, T]    sin(4π t) feature
-            device: Torch device; tensors are already on this device.
+        train_loader = DataLoader(
+            train_dataset, batch_size=config.BATCH_SIZE, shuffle=True, num_workers=0
+        )
+        val_loader = DataLoader(
+            val_dataset, batch_size=config.BATCH_SIZE, shuffle=False, num_workers=0
+        )
 
-        Returns:
-            - net_input:       [B*(T-1), F] concatenated features per time step
-            - true_derivatives:[B*(T-1), 1] finite-difference dy/dt target
-        """
-        # Unpack batch; all tensors are on DEVICE already.
-        h_ctx, amr_ctx, h_main, amr_main, sin_t1, sin_t2 = raw_batch
+        def batch_preparation_fn(raw_batch, device):
+            """Convert trajectories into per-step supervised pairs using finite differences.
 
-        # Current and next AMR values: shapes [B, T-1]
-        current = amr_main[:, :-1]  # y[t]
-        target = amr_main[:, 1:]    # y[t+1]
-        B, T = current.shape        # B: trajectories in batch, T: steps per trajectory minus one
+            Args:
+                raw_batch: Tuple of tensors with shapes:
+                    - h_ctx:       [B, C_h]  trajectory-level H contexts
+                    - amr_ctx:     [B, C_y]  trajectory-level AMR contexts  
+                    - h_main:      [B, T]    H time series
+                    - amr_main:    [B, T]    AMR time series (target signal y)
+                    - sin_t1:      [B, T]    sin(2π t) feature
+                    - sin_t2:      [B, T]    sin(4π t) feature
+                device: Torch device (already on this device).
 
-        # Stack per-time-step features then flatten from [B, T, 4] -> [B*T, 4]
-        step_features = torch.stack(
-            [current, h_main[:, :-1], sin_t1[:, :-1], sin_t2[:, :-1]], dim=-1
-        ).reshape(B * T, -1).contiguous()
+            Returns:
+                - net_input:       [B*(T-1), F] concatenated features per time step
+                - true_derivatives:[B*(T-1), 1] finite-difference dy/dt target
+            """
+            h_ctx, amr_ctx, h_main, amr_main, sin_t1, sin_t2 = raw_batch
 
-        # Concatenate contexts once [B, C_h+C_y], broadcast across time to [B, T, C], then flatten
-        ctx = torch.cat([h_ctx, amr_ctx], dim=1)
-        ctx_flat = ctx.unsqueeze(1).expand(B, T, -1).reshape(B * T, -1).contiguous()
+            # Current and next AMR values: shapes [B, T-1]
+            current = amr_main[:, :-1]  # y[t]
+            target = amr_main[:, 1:]    # y[t+1]
+            B, T = current.shape
 
-        # Final model input per step: [amr, h, sin1, sin2, h_ctx..., amr_ctx...]
-        net_input = torch.cat([step_features, ctx_flat], dim=1)
+            # Stack per-time-step features then flatten from [B, T, 4] -> [B*T, 4]
+            step_features = torch.stack(
+                [current, h_main[:, :-1], sin_t1[:, :-1], sin_t2[:, :-1]], dim=-1
+            ).reshape(B * T, -1).contiguous()
 
-        # Supervision: true dy/dt via finite difference (teacher forcing)
-        # This trains the drift network directly on derivatives, avoiding running an
-        # ODE solver inside the training loop and improving stability and throughput.
-        dt = processed_data["dt"]
-        if isinstance(dt, torch.Tensor):
-            dt = dt.item()
-        true_derivatives = ((target - current).reshape(-1, 1) / float(dt)).contiguous()
+            # Concatenate contexts [B, C_h+C_y], broadcast to [B, T, C], then flatten
+            ctx = torch.cat([h_ctx, amr_ctx], dim=1)
+            ctx_flat = ctx.unsqueeze(1).expand(B, T, -1).reshape(B * T, -1).contiguous()
 
-        return net_input, true_derivatives
+            # Final model input: [amr, h, sin1, sin2, h_ctx..., amr_ctx...]
+            net_input = torch.cat([step_features, ctx_flat], dim=1)
 
-    # Run the training loop
-    trained_drift_net, training_losses, validation_losses = train_with_validation(
-        model=initial_drift_net,
-        train_loader=train_loader,
-        val_loader=val_loader,
-        num_epochs=config.NUM_EPOCHS,
-        learning_rate=config.LEARNING_RATE,
-        early_stopping_patience=config.EARLY_STOPPING_PATIENCE,
-        device=DEVICE,
-        batch_preparation_fn=batch_preparation_fn,
-    )
+            # Supervision: finite difference dy/dt (teacher forcing)
+            dt = processed_data["dt"]
+            if isinstance(dt, torch.Tensor):
+                dt = dt.item()
+            true_derivatives = ((target - current).reshape(-1, 1) / float(dt)).contiguous()
 
-    # --- Save Losses for Debugging ---
-    np.savetxt(
-        os.path.join(output_dir, "losses.txt"),
-        np.column_stack([training_losses, validation_losses]),
-        header="Training_Loss,Validation_Loss",
-    )
+            return net_input, true_derivatives
 
-    mo.show_code()
+        # Run training
+        trained_drift_net, training_losses, validation_losses = train_with_validation(
+            model=initial_drift_net,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            num_epochs=config.NUMBER_OF_EPOCHS,
+            learning_rate=config.LEARNING_RATE,
+            device=DEVICE,
+            early_stopping_patience=config.EARLY_STOPPING_PATIENCE,
+            batch_preparation_fn=batch_preparation_fn,
+        )
+
+        # Save the trained model and losses
+        os.makedirs(output_directory, exist_ok=True)
+        torch.save(trained_drift_net.state_dict(), ode_model_path)
+        torch.save(training_losses, train_losses_path)
+        torch.save(validation_losses, val_losses_path)
+        print(f"✓ Neural ODE saved to {ode_model_path}")
+        print(f"✓ Metrics saved to {train_losses_path} and {val_losses_path}")
     return trained_drift_net, training_losses, validation_losses
+
+
+@app.cell
+def _(
+    COLOURS,
+    DEVICE,
+    np,
+    plt,
+    processed_data,
+    rollout_trajectory,
+    setup_matplotlib_style,
+    torch,
+    trained_drift_net,
+):
+    """Evaluate Neural ODE on validation data (intermediate check)."""
+    setup_matplotlib_style()
+    
+    print("\n" + "="*60)
+    print("Neural ODE Evaluation (Standardised Space)")
+    print("="*60)
+
+    trained_drift_net.eval()
+    traj_idx_ode_eval = 0
+
+    with torch.no_grad():
+        # Extract initial state and context features (standardised space)
+        y0_ode = (
+            processed_data["val_amr_main_norm"][traj_idx_ode_eval, 0]
+            .unsqueeze(0)
+            .unsqueeze(0)
+            .to(DEVICE)
+        )
+        h_context_ode = processed_data["val_h_context"][traj_idx_ode_eval].unsqueeze(0).to(DEVICE)
+        amr_context_ode = processed_data["val_amr_context"][traj_idx_ode_eval].unsqueeze(0).to(DEVICE)
+        val_h_main_ode = processed_data["val_h_main"][traj_idx_ode_eval].to(DEVICE)
+
+        # Define trajectory-specific drift function
+        def drift_func_ode(t, y):
+            idx = min(
+                int((t - processed_data["t_min"].item()) / processed_data["dt"]),
+                val_h_main_ode.shape[0] - 1,
+            )
+            h_t = val_h_main_ode[idx].unsqueeze(0).unsqueeze(0)
+            
+            # Compute time encoding on the fly (same as training)
+            t_norm = (t - processed_data["t_min"].item()) / (
+                processed_data["t_max"].item() - processed_data["t_min"].item()
+            )
+            t_norm_tensor = torch.full((1, 1), t_norm, device=y.device, dtype=y.dtype)
+            sin_t_1 = torch.sin(2 * torch.pi * t_norm_tensor)
+            sin_t_2 = torch.sin(4 * torch.pi * t_norm_tensor)
+            
+            net_input = torch.cat(
+                [y, h_t, sin_t_1, sin_t_2, h_context_ode, amr_context_ode], dim=1
+            )
+            return trained_drift_net(net_input)
+
+        # Rollout Neural ODE prediction
+        time_grid_ode = processed_data["time_grid"].to(DEVICE)
+        _, predicted_ode_traj = rollout_trajectory(
+            drift_function=drift_func_ode,
+            initial_state=y0_ode,
+            initial_time=time_grid_ode[0].item(),
+            final_time=time_grid_ode[-1].item(),
+            timestep=processed_data["dt"],
+        )
+        predicted_ode = predicted_ode_traj.squeeze()
+
+    # Plot ODE results
+    time_np_ode_plot = processed_data["time_grid"].cpu().numpy()
+    true_amr_np_ode_plot = processed_data["val_amr_main_norm"][traj_idx_ode_eval].cpu().numpy()
+    pred_ode_np_plot = predicted_ode.cpu().numpy()
+    h_field_np_ode_plot = val_h_main_ode.cpu().numpy()
+    
+    # Handle potential length mismatch (rollout may return N-1 or N+1 points)
+    min_len = min(len(time_np_ode_plot), len(pred_ode_np_plot), len(true_amr_np_ode_plot), len(h_field_np_ode_plot))
+    time_np_ode_plot = time_np_ode_plot[:min_len]
+    true_amr_np_ode_plot = true_amr_np_ode_plot[:min_len]
+    pred_ode_np_plot = pred_ode_np_plot[:min_len]
+    h_field_np_ode_plot = h_field_np_ode_plot[:min_len]
+
+    fig_ode, (ax1_ode, ax2_ode) = plt.subplots(2, 1, figsize=(8, 8))
+
+    # Plot H-field
+    ax1_ode.plot(time_np_ode_plot, h_field_np_ode_plot, color=COLOURS[1], linewidth=1.5, label=r'$H(t)$')
+    ax1_ode.set_ylabel(r'$H$ (Standardised)')
+    ax1_ode.legend(loc='upper right')
+    ax1_ode.spines['top'].set_visible(False)
+    ax1_ode.spines['right'].set_visible(False)
+
+    # Plot AMR: ground truth and ODE prediction
+    ax2_ode.plot(time_np_ode_plot, true_amr_np_ode_plot, color=COLOURS[3], linewidth=2, label='Ground Truth', alpha=0.8)
+    ax2_ode.plot(time_np_ode_plot, pred_ode_np_plot, color=COLOURS[0], linewidth=2, linestyle='--', label='Neural ODE')
+    ax2_ode.set_xlabel(r'Time [s]')
+    ax2_ode.set_ylabel(r'AMR (Standardised)')
+    ax2_ode.legend(loc='upper right')
+    ax2_ode.spines['top'].set_visible(False)
+    ax2_ode.spines['right'].set_visible(False)
+
+    plt.tight_layout()
+    plt.show()
+    
+    print("✓ Neural ODE prediction complete")
+    # Use the trimmed version for MSE calculation
+    predicted_ode_trimmed = predicted_ode[:min_len]
+    true_ode_trimmed = processed_data['val_amr_main_norm'][traj_idx_ode_eval, :min_len].to(DEVICE)
+    print(f"  MSE: {((predicted_ode_trimmed - true_ode_trimmed)**2).mean().item():.6f}")
+    
+    return predicted_ode, traj_idx_ode_eval
+
+
+@app.cell
+def _(
+    DEFAULT_METRIC_FILENAMES,
+    DEFAULT_MODEL_FILENAMES,
+    DEVICE,
+    NetworkArchitecture,
+    NeuralODE,
+    NeuralSDE,
+    config,
+    drift_net_arch,
+    os,
+    output_directory,
+    processed_data,
+    torch,
+    trained_drift_net,
+    training_losses,
+    validation_losses,
+):
+    """Train Neural SDE
+
+    Uses WGAN-GP to learn diffusion term: dx = f(x,t,u)dt + sigma(x,t,u) circ dW
+    The critic discriminates between real and generated trajectory windows.
+    """
+    from neural_dynamics.models.sde import DiffusionNet, CriticNet, fit_neural_sde_gan
+
+    print("\n" + "="*60)
+    print("Training Neural SDE (Stochastic Diffusion)")
+    print("="*60)
+
+    # Check for saved SDE model checkpoint
+    sde_model_path = os.path.join(output_directory, DEFAULT_MODEL_FILENAMES["neural_sde"])
+    generator_losses_path = os.path.join(output_directory, DEFAULT_METRIC_FILENAMES["generator_losses"])
+    critic_losses_path = os.path.join(output_directory, DEFAULT_METRIC_FILENAMES["critic_losses"])
+    sde_metrics_exist = os.path.exists(generator_losses_path) and os.path.exists(critic_losses_path)
+
+    # Freeze drift network (only train diffusion term, keep ODE fixed)
+    trained_drift_net.eval()
+    for param in trained_drift_net.parameters():
+        param.requires_grad = False
+
+    # Prepare standardised trajectories for SDE training
+    train_amr_for_sde = processed_data["train_amr_main_norm"].to(DEVICE)
+    time_grid_for_sde = processed_data["time_grid"].to(DEVICE)
+
+    # Reshape for SDE: [num_trajectories, num_timesteps, state_dim]
+    trajectories_for_sde = train_amr_for_sde.unsqueeze(-1)
+
+    print(f"Training on {trajectories_for_sde.shape[0]} trajectories")
+    print(f"Time grid: {time_grid_for_sde.shape[0]} timesteps")
+    print(f"Trajectory shape: {trajectories_for_sde.shape}")
+
+    # Convert config to unified Hyperparameters object
+    hyperparameters = config.to_hyperparameters()
+    print(f"\nCritic window size: {config.CRITIC_WINDOW_SIZE} timesteps")
+    print(f"Critic updates per generator update: {config.CRITIC_UPDATES}")
+
+    # Wrap trained drift network in NeuralODE container
+    neural_ode = NeuralODE(
+        drift_net=trained_drift_net,
+        hyperparameters=hyperparameters,
+        time_grid=time_grid_for_sde,
+        training_losses=training_losses,
+        validation_losses=validation_losses,
+    )
+    print(f"Neural ODE wrapper: {sum(p.numel() for p in neural_ode.drift_net.parameters()):,} parameters")
+
+    # Create diffusion network (learns stochastic term: sigma(x,t,u) circ dW)
+    # Matches drift architecture for balanced capacity
+    diffusion_arch = NetworkArchitecture(
+        input_size=drift_net_arch.input_size,  # Same inputs as drift: 14 features
+        hidden_sizes=drift_net_arch.hidden_sizes,  # Match drift: [512, 512, 512, 256]
+        output_size=1,  # state_dim × noise_dim = 1 × 1
+    )
+
+    diffusion_net = DiffusionNet(
+        diffusion_arch,
+        state_dimension=1,  # 1D AMR signal
+        noise_dimension=1,  # 1D Noise motion
+        device=DEVICE,
+    )
+    print(f"Diffusion network: {sum(p.numel() for p in diffusion_net.parameters()):,} parameters")
+
+    # Create smaller critic network to prevent collapse
+    # Perhaps the critic's capacity must be much smaller than what it discriminates to avoid rapid overfitting (unsure)
+    critic_window = config.CRITIC_WINDOW_SIZE
+
+    critic_net = CriticNet(
+        config.CRITIC_NET_ARCH,  # Small architecture: [64, 32] hidden units
+        trajectory_length=critic_window,
+        device=DEVICE,
+    )
+    print(f"Critic network: {sum(p.numel() for p in critic_net.parameters()):,} parameters (deliberately small!)")
+    print(f"  Input: {critic_window} timesteps → Output: scalar score")
+
+    # Manually instantiate Neural SDE with the trained drift network from the ODE
+    neural_sde = NeuralSDE(
+        neural_ode.drift_net,  # Use drift from the NeuralODE object
+        diffusion_net,
+        hyperparameters,
+        critic_net=critic_net,
+    ).to(DEVICE)
+
+    # Check if we can load existing SDE model
+    if os.path.exists(sde_model_path) and sde_metrics_exist:
+        print(f"Loading existing Neural SDE from {sde_model_path}...")
+        neural_sde.load_state_dict(torch.load(sde_model_path, map_location=DEVICE))
+        neural_sde.to(DEVICE)
+
+        # Load SDE metrics
+        generator_losses = list(torch.load(generator_losses_path, map_location="cpu"))
+        critic_losses = list(torch.load(critic_losses_path, map_location="cpu"))
+        print(f"Loaded Neural SDE with {len(generator_losses)} generator epochs")
+    else:
+        print("Training Neural SDE from scratch...")
+        # Run GAN training to fit the diffusion term
+        generator_losses, critic_losses = fit_neural_sde_gan(
+            drift_network=neural_ode.drift_net,  # Use drift from the NeuralODE object
+            diffusion_network=diffusion_net,
+            critic_network=critic_net,
+            time_grid=time_grid_for_sde[:critic_window],  # Use only critic window
+            stochastic_trajectories=trajectories_for_sde[:, :critic_window, :],
+            hyperparameters=hyperparameters,
+            random_seed=42069,
+        )
+
+        # Store losses in the model
+        neural_sde.generator_losses = generator_losses
+        neural_sde.critic_losses = critic_losses
+
+        # Save the trained SDE model
+        torch.save(neural_sde.state_dict(), sde_model_path)
+        torch.save(generator_losses, generator_losses_path)
+        torch.save(critic_losses, critic_losses_path)
+        print(f"Neural SDE saved to {sde_model_path}")
+        print(f"Metrics saved to {generator_losses_path} and {critic_losses_path}")
+
+    print("Neural SDE training complete")
+    print(f" Generator epochs: {len(generator_losses)}")
+    print(f" Critic epochs: {len(critic_losses)}")
+    return critic_losses, generator_losses, neural_sde
+
+
+@app.cell
+def _(DEVICE, config, neural_sde, processed_data, sample_sde_rollouts):
+    """Generate SDE rollouts for evaluation.
+
+    Samples multiple stochastic trajectories from the trained SDE to assess
+    whether the learnt dynamics match the true data distribution.
+    """
+    # Prepare standardised trajectories for rollout generation
+    train_amr_for_rollout = processed_data["train_amr_main_norm"].to(DEVICE)
+    trajectories_for_rollout = train_amr_for_rollout.unsqueeze(-1)
+    time_grid_sde = processed_data["time_grid"].to(DEVICE)
+
+    print("\n" + "="*60)
+    print("Generating SDE Rollouts")
+    print("="*60)
+    rollout = sample_sde_rollouts(
+        model=neural_sde,
+        trajectories=trajectories_for_rollout,
+        time_grid=time_grid_sde,
+        num_samples=config.NUMBER_OF_SDE_ROLLOUT_SAMPLES,
+        device=DEVICE,
+    )
+
+    print(f"Generated {rollout.rollout_tensor.shape[0]} stochastic rollouts")
+    print(f"  Shape: {rollout.rollout_tensor.shape} [samples, timesteps, state_dim]")
+    return (rollout,)
+
+
+@app.cell
+def _(
+    COLOURS,
+    DEVICE,
+    config,
+    neural_sde,
+    np,
+    plt,
+    predicted_ode,
+    processed_data,
+    setup_matplotlib_style,
+    torch,
+    traj_idx_ode_eval,
+):
+    """Evaluate Neural SDE on validation data (intermediate check)."""
+    setup_matplotlib_style()
+    
+    print("\n" + "="*60)
+    print("Neural SDE Evaluation (Standardised Space)")
+    print("="*60)
+
+    neural_sde.eval()
+    
+    with torch.no_grad():
+        # Use same trajectory as ODE evaluation
+        y0_sde = (
+            processed_data["val_amr_main_norm"][traj_idx_ode_eval, 0]
+            .unsqueeze(0)
+            .unsqueeze(0)
+            .to(DEVICE)
+        )
+        h_context_sde = processed_data["val_h_context"][traj_idx_ode_eval].unsqueeze(0).to(DEVICE)
+        amr_context_sde = processed_data["val_amr_context"][traj_idx_ode_eval].unsqueeze(0).to(DEVICE)
+        val_h_main_sde = processed_data["val_h_main"][traj_idx_ode_eval].to(DEVICE)
+        time_grid_sde_eval = processed_data["time_grid"].to(DEVICE)
+
+        # Define trajectory-specific functions for SDE
+        def drift_func_sde(t, y):
+            idx = min(
+                int((t - processed_data["t_min"].item()) / processed_data["dt"]),
+                val_h_main_sde.shape[0] - 1,
+            )
+            h_t = val_h_main_sde[idx].unsqueeze(0).unsqueeze(0)
+            
+            t_norm = (t - processed_data["t_min"].item()) / (
+                processed_data["t_max"].item() - processed_data["t_min"].item()
+            )
+            t_norm_tensor = torch.full((1, 1), t_norm, device=y.device, dtype=y.dtype)
+            sin_t_1 = torch.sin(2 * torch.pi * t_norm_tensor)
+            sin_t_2 = torch.sin(4 * torch.pi * t_norm_tensor)
+            
+            net_input = torch.cat(
+                [y, h_t, sin_t_1, sin_t_2, h_context_sde, amr_context_sde], dim=1
+            )
+            return neural_sde.drift_net(net_input)
+
+        def diffusion_func_sde(t, y):
+            idx = min(
+                int((t - processed_data["t_min"].item()) / processed_data["dt"]),
+                val_h_main_sde.shape[0] - 1,
+            )
+            h_t = val_h_main_sde[idx].unsqueeze(0).unsqueeze(0)
+            
+            t_norm = (t - processed_data["t_min"].item()) / (
+                processed_data["t_max"].item() - processed_data["t_min"].item()
+            )
+            t_norm_tensor = torch.full((1, 1), t_norm, device=y.device, dtype=y.dtype)
+            sin_t_1 = torch.sin(2 * torch.pi * t_norm_tensor)
+            sin_t_2 = torch.sin(4 * torch.pi * t_norm_tensor)
+            
+            net_input = torch.cat(
+                [y, h_t, sin_t_1, sin_t_2, h_context_sde, amr_context_sde], dim=1
+            )
+            return neural_sde.diffusion_net(net_input)
+
+        # Sample multiple SDE trajectories
+        num_sde_samples = 20
+        sde_predictions = []
+        for _ in range(num_sde_samples):
+            pred_sde_sample = neural_sde.sample_trajectory(
+                y0_sde,
+                time_grid_sde_eval,
+                drift_func_sde,
+                diffusion_func_sde,
+                device=DEVICE,
+            )
+            sde_predictions.append(pred_sde_sample.squeeze().cpu())
+        
+        sde_predictions_stacked = torch.stack(sde_predictions)
+        sde_mean = sde_predictions_stacked.mean(dim=0).numpy()
+        sde_std = sde_predictions_stacked.std(dim=0).numpy()
+
+    # Plot SDE results compared with ODE
+    time_np_sde_plot = processed_data["time_grid"].cpu().numpy()
+    true_amr_np_sde_plot = processed_data["val_amr_main_norm"][traj_idx_ode_eval].cpu().numpy()
+    pred_ode_np_sde_plot = predicted_ode.cpu().numpy()
+    h_field_np_sde_plot = val_h_main_sde.cpu().numpy()
+    
+    # Handle potential length mismatch
+    min_len_sde = min(len(time_np_sde_plot), len(pred_ode_np_sde_plot), len(true_amr_np_sde_plot), 
+                      len(h_field_np_sde_plot), len(sde_mean))
+    time_np_sde_plot = time_np_sde_plot[:min_len_sde]
+    true_amr_np_sde_plot = true_amr_np_sde_plot[:min_len_sde]
+    pred_ode_np_sde_plot = pred_ode_np_sde_plot[:min_len_sde]
+    h_field_np_sde_plot = h_field_np_sde_plot[:min_len_sde]
+    sde_mean = sde_mean[:min_len_sde]
+    sde_std = sde_std[:min_len_sde]
+
+    fig_sde, (ax1_sde, ax2_sde) = plt.subplots(2, 1, figsize=(8, 8))
+
+    # Plot H-field
+    ax1_sde.plot(time_np_sde_plot, h_field_np_sde_plot, color=COLOURS[1], linewidth=1.5, label=r'$H(t)$')
+    ax1_sde.set_ylabel(r'$H$ (Standardised)')
+    ax1_sde.legend(loc='upper right')
+    ax1_sde.spines['top'].set_visible(False)
+    ax1_sde.spines['right'].set_visible(False)
+
+    # Plot AMR: ground truth, ODE, and SDE
+    ax2_sde.plot(time_np_sde_plot, true_amr_np_sde_plot, color=COLOURS[3], linewidth=2, label='Ground Truth', alpha=0.8)
+    ax2_sde.plot(time_np_sde_plot, pred_ode_np_sde_plot, color=COLOURS[0], linewidth=2, linestyle='--', label='Neural ODE')
+    
+    # Plot SDE samples with transparency
+    for sde_sample_idx in range(num_sde_samples):
+        sde_sample_trimmed = sde_predictions_stacked[sde_sample_idx].numpy()[:min_len_sde]
+        ax2_sde.plot(time_np_sde_plot, sde_sample_trimmed, 
+                color=COLOURS[2], alpha=0.1, linewidth=0.5, label='_nolegend_')
+    
+    # Plot SDE mean
+    ax2_sde.plot(time_np_sde_plot, sde_mean, color=COLOURS[2], linewidth=2, label='Neural SDE (mean)')
+    ax2_sde.fill_between(time_np_sde_plot, sde_mean - sde_std, sde_mean + sde_std, 
+                     color=COLOURS[2], alpha=0.2, label=r'Neural SDE ($\pm 1\sigma$)')
+    
+    ax2_sde.set_xlabel(r'Time [s]')
+    ax2_sde.set_ylabel(r'AMR (Standardised)')
+    ax2_sde.legend(loc='upper right')
+    ax2_sde.spines['top'].set_visible(False)
+    ax2_sde.spines['right'].set_visible(False)
+
+    plt.tight_layout()
+    plt.show()
+    
+    print("✓ Neural SDE prediction complete")
+    print(f"  SDE mean MSE: {((torch.from_numpy(sde_mean) - processed_data['val_amr_main_norm'][traj_idx_ode_eval])**2).mean().item():.6f}")
+    print(f"  ODE MSE: {((predicted_ode.cpu() - processed_data['val_amr_main_norm'][traj_idx_ode_eval])**2).mean().item():.6f}")
+    
+    return num_sde_samples, sde_mean, sde_predictions_stacked, sde_std
+
+
+@app.cell
+def _(compare_statistics, compute_statistics, rollout):
+    """
+    Compare statistical properties of real vs generated trajectories.
+    """
+    print("\n" + "="*60)
+    print("Computing Statistics")
+    print("="*60)
+    training_stats = compute_statistics(rollout.training_subset)
+    sde_stats = compute_statistics(rollout.rollout_tensor)
+
+    print("\nComparing distributions (moment matching):")
+    compare_statistics(training_stats, sde_stats)
+    return
 
 
 @app.cell
@@ -257,25 +766,27 @@ def _(
     DEVICE,
     np,
     os,
-    output_dir,
+    output_directory,
     plot_nanoring_results,
     processed_data,
+    rollout,
     rollout_trajectory,
     torch,
     trained_drift_net,
-    training_losses,
-    validation_losses,
 ):
-    # --- 5. Evaluate and Visualize ---
-    trained_drift_net.eval()
+    """Evaluate Neural ODE and SDE predictions on validation data.
 
-    # Get one sample from the validation set for inference
+    All evaluation is done in STANDARDIZED SPACE (μ=0, σ=1) - no denormalization applied.
+    """
+    print("\n" + "="*60)
+    print("Evaluating on Validation Data (Standardized Space)")
+    print("="*60)
+
+    trained_drift_net.eval()
     traj_idx_to_plot = 0
-    val_min, val_max = processed_data["val_scalers"][traj_idx_to_plot]
-    h_min_val, h_max_val = processed_data["val_h_scalers"][traj_idx_to_plot]
 
     with torch.no_grad():
-        # Get the necessary data for this trajectory from the processed file
+        # Extract initial state and context features (standardized space)
         y0_eval = (
             processed_data["val_amr_main_norm"][traj_idx_to_plot, 0]
             .unsqueeze(0)
@@ -286,7 +797,7 @@ def _(
         amr_context_eval = processed_data["val_amr_context"][traj_idx_to_plot].unsqueeze(0).to(DEVICE)
         val_h_main_traj = processed_data["val_h_main"][traj_idx_to_plot].to(DEVICE)
 
-        # Define the example-specific drift function that captures context
+        # Define trajectory-specific drift function
         def drift_func_eval(t, y):
             idx = min(
                 int((t - processed_data["t_min"].item()) / processed_data["dt"]),
@@ -294,10 +805,9 @@ def _(
             )
             h_t = val_h_main_traj[idx].unsqueeze(0).unsqueeze(0)
 
-            t_norm = (
-                t
-                - processed_data["t_min"].item()
-            ) / (processed_data["t_max"].item() - processed_data["t_min"].item())
+            t_norm = (t - processed_data["t_min"].item()) / (
+                processed_data["t_max"].item() - processed_data["t_min"].item()
+            )
             t_norm_tensor = torch.full((1, 1), t_norm, device=y.device, dtype=y.dtype)
             sin_t_1 = torch.sin(2 * torch.pi * t_norm_tensor)
             sin_t_2 = torch.sin(4 * torch.pi * t_norm_tensor)
@@ -307,13 +817,11 @@ def _(
             )
             return trained_drift_net(net_input)
 
-        # Use the generic rollout function to get the predicted trajectory
-        eval_num_steps_required = processed_data["val_amr_main_norm"].shape[1] - 1
-        eval_final_time = (
-            processed_data["t_min"].item() + eval_num_steps_required * processed_data["dt"]
-        )
+        # Rollout ODE trajectory
+        eval_num_steps = processed_data["val_amr_main_norm"].shape[1] - 1
+        eval_final_time = processed_data["t_min"].item() + eval_num_steps * processed_data["dt"]
 
-        _, pred_traj_norm = rollout_trajectory(
+        _, pred_ode_norm = rollout_trajectory(
             drift_function=drift_func_eval,
             initial_state=y0_eval,
             initial_time=processed_data["t_min"].item(),
@@ -321,42 +829,152 @@ def _(
             timestep=processed_data["dt"],
         )
 
-        predicted_sequence = pred_traj_norm.squeeze() * (val_max - val_min) + val_min
-        true_val_sequence = (
-            processed_data["val_amr_main_norm"][traj_idx_to_plot]
-            * (val_max - val_min)
-            + val_min
-        )
+        # Keep predictions in standardized space - NO denormalization
+        pred_ode = pred_ode_norm.squeeze().cpu()
+        true_val = processed_data["val_amr_main_norm"][traj_idx_to_plot].cpu()
+        h_field_norm = val_h_main_traj.cpu()
 
-        h_field_unnorm = (
-            val_h_main_traj * (h_max_val - h_min_val + 1e-8) + h_min_val
-        )
+        # Get all training sequences in standardized space
+        all_train_seqs = processed_data["train_amr_main_norm"].cpu().numpy()
 
-        all_train_seqs = []
-        for i, (train_min, train_max) in enumerate(processed_data["train_scalers"]):
-            train_seq_norm = processed_data["all_train_amr_main_norm"][i]
-            train_sequence = train_seq_norm * (train_max - train_min) + train_min
-            all_train_seqs.append(train_sequence.cpu().numpy())
+        # Get SDE prediction in standardized space
+        if rollout.rollout_tensor.numel() > 0:
+            pred_sde = rollout.rollout_tensor[0, :, 0].cpu()
+        else:
+            pred_sde = pred_ode
 
+        # Save standardized numerical results
         np.savetxt(
-            os.path.join(output_dir, "predicted_trajectory.txt"),
-            predicted_sequence.cpu().numpy(),
+            os.path.join(output_directory, "predicted_trajectory_ode_standardized.txt"),
+            pred_ode.numpy(),
         )
         np.savetxt(
-            os.path.join(output_dir, "true_trajectory.txt"),
-            true_val_sequence.cpu().numpy(),
+            os.path.join(output_directory, "predicted_trajectory_sde_standardized.txt"),
+            pred_sde.numpy(),
+        )
+        np.savetxt(
+            os.path.join(output_directory, "true_trajectory_standardized.txt"),
+            true_val.numpy(),
         )
 
+    # Plot results in standardized space
+    time_axis = processed_data["time_grid"].cpu().numpy()
     plot_nanoring_results(
-        training_losses=training_losses,
-        validation_losses=validation_losses,
-        time_axis=processed_data["time_grid"].cpu().numpy(),
-        true_sequence=true_val_sequence,
-        predicted_sequence=predicted_sequence,
-        h_field=h_field_unnorm,
-        all_train_sequences=np.array(all_train_seqs),
-        output_dir=output_dir,
+        time_axis=time_axis,
+        true_sequence=true_val,
+        predicted_sequence_ode=pred_ode,
+        predicted_sequence_sde=pred_sde,
+        h_field=h_field_norm,
+        all_train_sequences=all_train_seqs,
+        output_dir=output_directory,
     )
+
+    print(f"\nResults plotted and saved to {output_directory}")
+    print("\nValidation Performance (Standardized Space):")
+    print(f"  ODE MSE: {torch.mean((pred_ode - true_val)**2).item():.6f}")
+    print(f"  SDE MSE: {torch.mean((pred_sde - true_val)**2).item():.6f}")
+    return
+
+
+@app.cell
+def _(
+    COLOURS,
+    critic_losses,
+    generator_losses,
+    np,
+    os,
+    output_directory,
+    plt,
+    training_losses,
+    validation_losses,
+):
+    """Visualise training convergence.
+
+    Shows ODE supervised learning curves and SDE adversarial training dynamics.
+    """
+    print("\n" + "="*60)
+    print("Training Loss Analysis")
+    print("="*60)
+
+    # Calculate total epochs and create shared x-axis
+    ode_epochs = len(training_losses)
+    sde_epochs = len(generator_losses)
+    total_epochs = ode_epochs + sde_epochs
+
+    # Create 3-panel plot with shared x-axis
+    fig_losses, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(8, 8), sharex=True)
+
+    # Create epoch arrays
+    ode_epoch_range = np.arange(ode_epochs)
+    sde_epoch_range = np.arange(ode_epochs, total_epochs)
+
+    # Panel 1: Neural ODE supervised learning (finite differences)
+    ax1.plot(
+        ode_epoch_range,
+        training_losses,
+        color=COLOURS[0],
+        linewidth=1.5,
+        label='Training'
+    )
+    ax1.plot(
+        ode_epoch_range,
+        validation_losses,
+        color=COLOURS[1],
+        linewidth=1.5,
+        label='Validation'
+    )
+
+    # Mark transition to SDE training phase with annotation
+    if ode_epochs > 0:
+        ax1.axvline(
+            x=ode_epochs - 1,
+            color="black",
+            linestyle="--",
+            alpha=0.7,
+            linewidth=1.5,
+        )
+        # Add text annotation
+        ax1.text(
+            ode_epochs * 1.05,
+            ax1.get_ylim()[1] * 0.45,
+            "SDE training starts",
+            ha="center",
+            va="bottom",
+            fontsize=14,
+            rotation=90,
+        )
+
+    ax1.legend(loc="best", framealpha=0.9)
+    ax1.set_ylabel("Smooth L1 Loss")
+
+    # Panel 2: SDE Generator Loss (adversarial + L1 + moment matching)
+    if len(generator_losses) > 0:
+        ax2.plot(sde_epoch_range, generator_losses, color='k', linewidth=1.5)
+    ax2.set_ylabel("Generator Loss")
+
+    # Panel 3: Critic Loss (Wasserstein distance + gradient penalty)
+    if len(critic_losses) > 0:
+        ax3.plot(sde_epoch_range, critic_losses, color='k', linewidth=1.5)
+    ax3.set_ylabel("Critic Loss")
+    ax3.set_xlabel("Epoch")
+
+    # Set x-axis limits to show all epochs
+    ax3.set_xlim(0, total_epochs - 1)
+
+    plt.tight_layout()
+    loss_plot_path = os.path.join(output_directory, "training_losses.pdf")
+    fig_losses.savefig(loss_plot_path, dpi=300, bbox_inches="tight")
+    print(f"\nLoss curves saved to {loss_plot_path}")
+    print("\nTraining Summary:")
+    print(f"  ODE epochs: {ode_epochs}")
+    print(f"  SDE epochs: {sde_epochs}")
+    print(f"  Final ODE train loss: {training_losses[-1]:.6f}")
+    print(f"  Final ODE val loss: {validation_losses[-1]:.6f}")
+    if len(generator_losses) > 0:
+        print(f"  Final generator loss: {generator_losses[-1]:.6f}")
+        print(f"  Final critic loss: {critic_losses[-1]:.6f}")
+    plt.show()
+    plt.close(fig_losses)
     return
 
 

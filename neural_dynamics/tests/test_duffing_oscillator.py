@@ -20,7 +20,7 @@ import os
 import json
 import math
 
-from examples.parameters.duffing_oscillator import PhysicalDuffingParameters
+from examples.systems.parameters.duffing_oscillator import PhysicalDuffingParameters
 from examples.systems.duffing_oscillator import DuffingOscillator
 from neural_dynamics.core.utils import set_default_plotting_style, style_axis_clean, COLOURS
 

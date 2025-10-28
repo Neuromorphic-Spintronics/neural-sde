@@ -214,6 +214,11 @@ class FeedForwardNetwork(nn.Sequential, NetworkProtocol):
 
     """
 
+    architecture: NetworkArchitecture
+    input_size: int
+    output_size: int
+    layer_sizes: list[int]
+
     def __init__(
         self,
         architecture: NetworkArchitecture,
@@ -231,10 +236,10 @@ class FeedForwardNetwork(nn.Sequential, NetworkProtocol):
             device: Computation device
         """
 
-        self.architecture = architecture
-        self.input_size = architecture.input_size
-        self.output_size = architecture.output_size
-        self.layer_sizes = architecture.layer_sizes
+        self.architecture = architecture  # type: ignore
+        self.input_size = architecture.input_size  # type: ignore
+        self.output_size = architecture.output_size  # type: ignore
+        self.layer_sizes = architecture.layer_sizes  # type: ignore
 
         layers = self._build_layers(activation, final_activation)
         super().__init__(*layers)

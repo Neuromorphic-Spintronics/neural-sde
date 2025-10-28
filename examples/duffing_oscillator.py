@@ -6,522 +6,579 @@ app = marimo.App(width="full")
 
 @app.cell
 def _():
-    # --- 1. Setup: Imports and Configuration ---
-    import os
     import sys
-    from dataclasses import replace
     from pathlib import Path
 
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+    import numpy as np
+    import os
     import torch
     import matplotlib.pyplot as plt
-    import numpy as np
-
-    # Ensure the project root is importable when running the notebook standalone.
-    project_root = Path(__file__).resolve().parents[1]
-    if str(project_root) not in sys.path:
-        sys.path.insert(0, str(project_root))
 
     from neural_dynamics.config import DEVICE
-    from neural_dynamics.core.hyperparameters import Hyperparameters
+    from neural_dynamics.core.utils import (
+        COLOURS,
+        compare_statistics,
+        compute_statistics,
+        sample_sde_rollouts,
+    )
+    from examples.systems.parameters.duffing_oscillator import PhysicalDuffingParameters
+    from examples.systems.duffing_oscillator import (
+        DuffingDataConfig,
+        prepare_duffing_training_data,
+    )
     from neural_dynamics.models.ode import NeuralODE
     from neural_dynamics.models.sde import NeuralSDE
-    from neural_dynamics.training.evaluation import rollout_trajectory
-    from neural_dynamics.core.utils import COLOURS
-    from neural_dynamics.core.utils import set_symmetric_three_ticks
-
-    from examples.systems.duffing_oscillator import DuffingOscillator
-    from examples.parameters.duffing_oscillator import PhysicalDuffingParameters
-
-    class NotebookConfig:
-        """Top-level configuration for the Duffing notebook."""
-
-        NUM_TRAJECTORIES: int = 512
-        NO_NOISE: bool = False
-        VALIDATION_SPLIT: float = 0.2
-        RUN_GAN: bool = True
-        NUM_SDE_SAMPLES: int = 1
-
-    # Any changes to the default hyperparameters can be made here
-    defaults = replace(Hyperparameters.defaults(), number_of_epochs=512)
-
-    output_dir = os.path.join(
-        "examples",
-        "output",
-        f"duffing_epochs-{defaults.number_of_epochs}_batch_size-{defaults.batch_size}_lr-{defaults.learning_rates.drift}",
+    from examples.utils.plotting import setup_matplotlib_style, finalise_plot
+    from neural_dynamics.utils.training_helpers import (
+        DEFAULT_METRIC_FILENAMES,
+        DEFAULT_MODEL_FILENAMES,
+        DEFAULT_TRAINING_OUTPUT_DIR,
+        ModellingConfig,
     )
-    os.makedirs(output_dir, exist_ok=True)
-    print(f"Output directory: {output_dir}")
-
-    # --- 2. Data Generation (batched and vectorised) ---
-    if NotebookConfig.NO_NOISE:
-        physical_params = PhysicalDuffingParameters(
-            temperature=0.0, coloured_noise_intensity=0.0, timestep=0.01
-        )
-    else:
-        physical_params = PhysicalDuffingParameters(timestep=25.0 / 255)
-
-    dimless_params = physical_params.to_dimensionless()
-    system = DuffingOscillator(dimless_params)
-    time_grid, trajectories = system.integrate_sde(
-        batch_size=NotebookConfig.NUM_TRAJECTORIES
-    )
-
-    trajectories = trajectories.to(torch.float32)
-    time_grid = time_grid.to(torch.float32)
     return (
         COLOURS,
+        DEFAULT_METRIC_FILENAMES,
+        DEFAULT_MODEL_FILENAMES,
+        DEFAULT_TRAINING_OUTPUT_DIR,
         DEVICE,
+        DuffingDataConfig,
+        ModellingConfig,
         NeuralODE,
         NeuralSDE,
-        NotebookConfig,
-        defaults,
+        PhysicalDuffingParameters,
+        compare_statistics,
+        compute_statistics,
+        finalise_plot,
         np,
         os,
-        output_dir,
         plt,
-        rollout_trajectory,
-        set_symmetric_three_ticks,
-        time_grid,
+        prepare_duffing_training_data,
+        sample_sde_rollouts,
+        setup_matplotlib_style,
         torch,
-        trajectories,
     )
 
 
 @app.cell
 def _(
+    DEFAULT_TRAINING_OUTPUT_DIR,
+    DuffingDataConfig,
+    ModellingConfig,
+    PhysicalDuffingParameters,
+):
+    system_name = "duffing"
+    data_config = DuffingDataConfig()
+    modelling_config = ModellingConfig.with_defaults(
+        system_name=system_name,
+        critic_window_size=64,
+    )
+    physical_params = PhysicalDuffingParameters()
+    output_directory = modelling_config.output_directory(base_dir=DEFAULT_TRAINING_OUTPUT_DIR)
+    return data_config, modelling_config, output_directory, physical_params
+
+
+@app.cell
+def _(DEVICE, data_config, physical_params, prepare_duffing_training_data):
+    dataset_path, training_data, system, resolved_params = prepare_duffing_training_data(
+        config=data_config,
+        physical_params=physical_params,
+        device=DEVICE,
+    )
+
+    print(f"Using training data cached at {dataset_path}")
+
+    time_grid = training_data.time_grid.to(DEVICE)
+    trajectories = training_data.trajectories.to(DEVICE)
+    return system, time_grid, trajectories
+
+
+@app.cell
+def _(
+    DEFAULT_METRIC_FILENAMES,
+    DEFAULT_MODEL_FILENAMES,
     DEVICE,
     NeuralODE,
-    NotebookConfig,
-    defaults,
-    np,
-    os,
-    output_dir,
+    NeuralSDE,
+    data_config,
+    modelling_config,
+    output_directory,
     time_grid,
-    torch,
     trajectories,
 ):
-    # --- 4. Train the drift network via the NeuralODE helper ---
-    drift_net_path = os.path.join(output_dir, "neural_ode_state_dict.pt")
-    if os.path.exists(drift_net_path):
-        # Load existing model if it exists ^
-        from neural_dynamics.models.base import DriftNet
+    loaded = modelling_config.load_models(
+        output_directory,
+        model_filenames=DEFAULT_MODEL_FILENAMES,
+        metric_filenames=DEFAULT_METRIC_FILENAMES,
+        device=DEVICE,
+    )
 
-        drift_net_instance = DriftNet(defaults.drift_network)
-        neural_ode = NeuralODE(drift_net=drift_net_instance, hyperparameters=defaults)
-        neural_ode.drift_net.load_state_dict(
-            torch.load(drift_net_path, map_location=DEVICE)
-        )
-        neural_ode.drift_net.to(DEVICE)
-        train_losses = np.loadtxt(os.path.join(output_dir, "losses.txt"))[
-            :, 0
-        ]  # Load saved losses
-        val_losses = np.loadtxt(os.path.join(output_dir, "losses.txt"))[:, 1]
-        trained_ode = False
-        print("Loaded existing Neural ODE model.")
+    if loaded is not None:
+        neural_ode, neural_sde, loaded_metrics = loaded
+        train_losses = list(loaded_metrics.get("train_losses", []))
+        val_losses = list(loaded_metrics.get("val_losses", []))
+        generator_losses = list(loaded_metrics.get("generator_losses", []))
+        critic_losses = list(loaded_metrics.get("critic_losses", []))
+        print(f"Loaded existing checkpoints from {output_directory}.")
     else:
+        print("Training Neural ODE...")
         neural_ode = NeuralODE.train(
-            hyperparameters=defaults,
+            hyperparameters=modelling_config.hyperparameters,
             trajectories=trajectories,
             time_grid=time_grid,
             device=DEVICE,
-            validation_split=NotebookConfig.VALIDATION_SPLIT,
-            early_stopping_patience=defaults.number_of_epochs,
+            validation_split=0.2,
+            early_stopping_patience=modelling_config.hyperparameters.number_of_epochs // 4,
         )
+        train_losses = list(neural_ode.training_losses)
+        val_losses = list(neural_ode.validation_losses)
 
-        train_losses = neural_ode.training_losses
-        val_losses = neural_ode.validation_losses
-
-        # Persist losses and learnt model for baseline of GAN
-        np.savetxt(
-            os.path.join(output_dir, "losses.txt"),
-            np.column_stack([train_losses, val_losses]),
-            header="Training_Loss,Validation_Loss",
-        )
-        torch.save(neural_ode.drift_net.state_dict(), drift_net_path)
-        trained_ode = True
-    return neural_ode, train_losses, trained_ode, val_losses
-
-
-@app.cell
-def _(
-    DEVICE,
-    NeuralSDE,
-    NotebookConfig,
-    defaults,
-    neural_ode,
-    os,
-    output_dir,
-    time_grid,
-    torch,
-    trajectories,
-):
-    # --- Train the Neural SDE ---
-    neural_sde_path = os.path.join(output_dir, "neural_sde_state_dict.pt")
-    if os.path.exists(neural_sde_path):
-        # Load existing model if they exist ^
-        neural_sde = NeuralSDE(drift_or_hyperparameters=defaults)
-        neural_sde.load_state_dict(torch.load(neural_sde_path, map_location=DEVICE))
-        neural_sde.to(DEVICE)
-        trained_sde = False
-        print("Loaded existing Neural SDE model.")
-    else:
+        print("Training Neural SDE...")
         neural_sde = NeuralSDE.train(
-            hyperparameters=defaults,
+            hyperparameters=modelling_config.hyperparameters,
             neural_ode=neural_ode,
             trajectories=trajectories,
             time_grid=time_grid,
             device=DEVICE,
-            enable_adversarial=NotebookConfig.RUN_GAN,
+            enable_adversarial=modelling_config.enable_adversarial,
+            random_seed=data_config.seed,
         )
-        # Save the trained Neural SDE model
-        torch.save(neural_sde.state_dict(), neural_sde_path)
-        trained_sde = True
-    return neural_sde, trained_sde
+
+        generator_losses = list(getattr(neural_sde, "generator_losses", []))
+        critic_losses = list(getattr(neural_sde, "critic_losses", []))
+
+        training_metrics = {
+            "train_losses": train_losses,
+            "val_losses": val_losses,
+            "generator_losses": generator_losses,
+            "critic_losses": critic_losses,
+        }
+
+        modelling_config.save_models(
+            output_directory,
+            neural_ode=neural_ode,
+            neural_sde=neural_sde,
+            model_filenames=DEFAULT_MODEL_FILENAMES,
+            metrics=training_metrics,
+            metric_filenames=DEFAULT_METRIC_FILENAMES,
+        )
+
+    neural_ode = neural_ode.to(DEVICE)
+    neural_sde = neural_sde.to(DEVICE)
+    super(NeuralSDE, neural_sde).train(False)
+    return (
+        critic_losses,
+        generator_losses,
+        neural_ode,
+        neural_sde,
+        train_losses,
+        val_losses,
+    )
 
 
 @app.cell
-def _(
-    DEVICE,
-    defaults,
-    neural_ode,
-    np,
-    os,
-    output_dir,
-    rollout_trajectory,
-    time_grid,
-    torch,
-    trajectories,
-):
-    # --- 5. Simulate a trajectory with the trained drift (Neural ODE) ---
-    drift_net = neural_ode.drift_net
-    drift_net.eval()
+def _(neural_ode, time_grid, torch, trajectories):
+    reference_state = trajectories[0:1, 0, :]
     with torch.no_grad():
-        # Use the first validation trajectory as reference
-        ref_traj = trajectories[0].to(DEVICE)
-        y0 = ref_traj[0, : defaults.state_dimension].unsqueeze(0)
-
-        def drift_func_eval(t, y):
-            t_tensor = torch.as_tensor([[t]], device=y.device, dtype=y.dtype)
-            net_in = torch.cat([y, t_tensor], dim=1)
-            return drift_net(net_in)
-
-        t0 = float(time_grid[0].item())
-        dt_step = float((time_grid[1] - time_grid[0]).item())
-        # Ensure the rollout uses the exact same number of steps as the reference
-        num_steps_required = int(time_grid.shape[0] - 1)
-        tN = t0 + num_steps_required * dt_step
-        pred_time, pred_traj_batched = rollout_trajectory(
-            drift_function=drift_func_eval,
-            initial_state=y0,
-            initial_time=t0,
-            final_time=tN,
-            timestep=dt_step,
-        ) # this integrates with an appropriate integration scheme 
-
-        # Save prediction artefacts for later analysis if required
-        np.savetxt(os.path.join(output_dir, "time_grid.txt"), pred_time.cpu().numpy())
-        pred_traj = pred_traj_batched.squeeze(1)  # remove batch dim -> [T, D]
-        np.savetxt(
-            os.path.join(output_dir, "predicted_trajectory.txt"),
-            pred_traj.cpu().numpy(),
-        )
-        np.savetxt(
-            os.path.join(output_dir, "true_trajectory.txt"), ref_traj.cpu().numpy()
-        )
-    return pred_time, pred_traj, ref_traj
+        ode_prediction = neural_ode(reference_state, time_grid)[0]
+    return (ode_prediction,)
 
 
 @app.cell
 def _(
     DEVICE,
-    NotebookConfig,
-    defaults,
+    modelling_config,
     neural_sde,
+    sample_sde_rollouts,
     time_grid,
-    torch,
     trajectories,
 ):
-    neural_sde_rollouts = []
-    if NotebookConfig.RUN_GAN and NotebookConfig.NUM_SDE_SAMPLES > 0:
-        sde_initial_state = (
-            trajectories[0, 0, : defaults.state_dimension].unsqueeze(0).to(DEVICE)
-        )
-        time_grid_device = time_grid.to(DEVICE)
+    rollout = sample_sde_rollouts(
+        model=neural_sde,
+        trajectories=trajectories,
+        time_grid=time_grid,
+        num_samples=modelling_config.sde_sample_count,
+        device=DEVICE,
+    )
+    return (rollout,)
 
-        with torch.no_grad():
-            for sample_idx in range(NotebookConfig.NUM_SDE_SAMPLES):
-                sample_rollout = neural_sde(sde_initial_state, time_grid_device)
-                neural_sde_rollouts.append(
-                    sample_rollout[:, 0, : defaults.state_dimension].cpu()
-                )
-    return (neural_sde_rollouts,)
+
+@app.cell
+def _(compare_statistics, compute_statistics, rollout):
+    training_stats = compute_statistics(rollout.training_subset)
+    sde_stats = compute_statistics(rollout.rollout_tensor)
+    _ = compare_statistics(training_stats, sde_stats)
+    return sde_stats, training_stats
 
 
 @app.cell
 def _(
     COLOURS,
-    NotebookConfig,
-    neural_sde,
-    neural_sde_rollouts,
+    critic_losses,
+    finalise_plot,
+    generator_losses,
+    modelling_config,
     np,
     os,
-    output_dir,
+    output_directory,
     plt,
-    pred_time,
-    pred_traj,
-    ref_traj,
-    set_symmetric_three_ticks,
+    setup_matplotlib_style,
     train_losses,
-    trained_ode,
-    trained_sde,
-    trajectories,
     val_losses,
 ):
-    # --- 6. Plot losses (optional), phase space, and pos/vel with residuals (for neural ODE only) ---
-    plt.rcParams.update(
-        {
-            "text.usetex": True,
-            "font.family": "Times",
-            "font.size": 14,
-            "axes.linewidth": 1.0,
-        }
+    setup_matplotlib_style()
+    os.makedirs(output_directory, exist_ok=True)
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(8, 8), sharex=True)
+
+    ode_epochs = modelling_config.hyperparameters.number_of_epochs
+    gan_epochs = modelling_config.hyperparameters.number_of_gan_epochs
+    total_epochs = ode_epochs + gan_epochs
+
+    ode_epoch_range = np.arange(len(train_losses))
+
+    ax1.plot(
+        ode_epoch_range,
+        train_losses,
+        label="Training",
+        color=COLOURS[0],
+        linewidth=1.5,
+    )
+    ax1.plot(
+        ode_epoch_range, val_losses, label="Validation", color=COLOURS[1], linewidth=1.5
     )
 
-    os.makedirs(output_dir, exist_ok=True)
+    ax1.axvline(
+        x=len(train_losses) - 1,
+        color="black",
+        linestyle="--",
+        alpha=0.7,
+        linewidth=1.0,
+    )
+    ax1.text(
+        len(train_losses) - 1,
+        ax1.get_ylim()[1] * 0.9,
+        "SDE Training Start",
+        rotation=90,
+        verticalalignment="top",
+        horizontalalignment="right",
+    )
 
-    # 1) Loss panels (drift + optional GAN losses)
-    if trained_ode or trained_sde:
-        generator_losses = getattr(neural_sde, "generator_losses", []) or []
-        critic_losses = getattr(neural_sde, "critic_losses", []) or []
+    ax1.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+    ax1.set_ylabel("SmoothL1 Loss")
+    ax1.grid(False)
 
-        print(generator_losses)
+    sde_epochs = np.arange(ode_epochs, ode_epochs + len(generator_losses))
 
-        loss_panels = []
-        if trained_ode:
-            loss_panels.append(
-                (
-                    "Drift",
-                    np.arange(len(train_losses)),
-                    [
-                        ("Training", train_losses, "black", 1.2),
-                        ("Validation", val_losses, "black", 2.0),
-                    ],
-                )
-            )
-        if generator_losses:
-            loss_panels.append(
-                (
-                    "Generator",
-                    np.arange(len(generator_losses)),
-                    [("Generator", generator_losses, COLOURS[0], 1.5)],
-                )
-            )
-        if critic_losses:
-            loss_panels.append(
-                (
-                    "Critic",
-                    np.arange(len(critic_losses)),
-                    [("Critic", critic_losses, COLOURS[1], 1.5)],
-                )
-            )
+    if len(sde_epochs) == len(generator_losses):
+        ax2.plot(sde_epochs, generator_losses, color=COLOURS[2], linewidth=1.5)
+    ax2.set_ylabel("Generator Loss")
+    ax2.grid(False)
 
-        if loss_panels:
-            fig1, axes = plt.subplots(1, len(loss_panels), figsize=(4 * len(loss_panels), 4))
-            if len(loss_panels) == 1:
-                axes = [axes]
+    if len(sde_epochs) == len(critic_losses):
+        ax3.plot(sde_epochs, critic_losses, color=COLOURS[3], linewidth=1.5)
+    ax3.set_ylabel("Critic Loss")
+    ax3.set_xlabel("Epoch")
+    ax3.grid(False)
 
-            for ax, (title, epochs, series) in zip(axes, loss_panels):
-                for label, values, color, width in series:
-                    ax.plot(epochs, values, label=label, color=color, linewidth=width)
-                    if label == "Validation":
-                        ax.set_ylabel("Overall Loss")
-                    else:
-                        ax.set_ylabel(f"{label} Loss")
-                ax.set_xlabel("Epoch")
-                if label == "Validation":
-                    ax.set_yscale("log")  # Only for overall loss, not for generator or critic
-                ax.grid(False)
-                if len(series) > 1:
-                    ax.legend(
-                        loc="upper center", bbox_to_anchor=(0.5, 1.15), ncol=2
-                    )
-                for spine in ax.spines.values():
-                    spine.set_linewidth(1.0)
+    if total_epochs > 1:
+        ax1.set_xlim(0, total_epochs - 1)
 
-            fig1.tight_layout()
-            fig1.savefig(os.path.join(output_dir, "losses.pdf"), bbox_inches="tight", dpi=300)
-            plt.show()
+    finalise_plot(fig, "training_losses.pdf", str(output_directory), os)
+    return
 
-    # 2) Phase space
-    q_true = ref_traj[:, 0].cpu().numpy()
-    v_true = ref_traj[:, 1].cpu().numpy()
-    q_pred = pred_traj[:, 0].cpu().numpy()
-    v_pred = pred_traj[:, 1].cpu().numpy()
-    traj_np = trajectories.detach().cpu().numpy()
-    n_show_phase = min(traj_np.shape[0], 200)
 
-    phase_fig, axp = plt.subplots(figsize=(4.0, 4.0))
-    training_alpha_phase = 1.0 if NotebookConfig.NO_NOISE else 0.1
-    for i in range(n_show_phase):
-        axp.plot(
-            traj_np[i, :, 0],
-            traj_np[i, :, 1],
+@app.cell
+def _(
+    COLOURS,
+    data_config,
+    finalise_plot,
+    np,
+    ode_prediction,
+    os,
+    output_directory,
+    plt,
+    rollout,
+    trajectories,
+):
+    phase_fig, phase_ax = plt.subplots(figsize=(6.0, 4.0))
+    q_pred = ode_prediction[:, 0].detach().cpu().numpy()
+    v_pred = ode_prediction[:, 1].detach().cpu().numpy()
+    trajectories_np = trajectories.detach().cpu().numpy()
+    n_show_phase = min(trajectories_np.shape[0], 200)
+    training_opacity_phase = 1.0 if data_config.noise_disabled else 0.1
+    for phase_idx in range(n_show_phase):
+        phase_ax.plot(
+            trajectories_np[phase_idx, :, 0],
+            trajectories_np[phase_idx, :, 1],
             color="black",
             linewidth=0.6,
-            alpha=training_alpha_phase,
+            alpha=training_opacity_phase,
+            label="Training" if phase_idx == 0 else "",
         )
-    axp.plot(q_true, v_true, color="black", linewidth=0.6, alpha=training_alpha_phase)
-    axp.plot(q_pred, v_pred, color=COLOURS[2], linewidth=1.0)
-
-    # Plot rolled-out trajectory
-    if neural_sde_rollouts:
-        sde_rollout = neural_sde_rollouts[0]
-        rollout_np = sde_rollout.numpy()
-        axp.plot(
-            rollout_np[:, 0],
-            rollout_np[:, 1],
-            color=COLOURS[3],
-            linewidth=1.0,
-            alpha=1.0,
-        )
-
-    axp.set_ylabel("$v(q(t))$ [ms$^{-1}$]")
-    axp.set_xlabel("$q(t)$ [m]")
-    axp.grid(False)
-
-    # Determine limits from training, deterministic, and SDE trajectories; add padding
-    phase_components = [
-        q_true,
-        v_true,
-        q_pred,
-        v_pred,
-        traj_np[:n_show_phase, :, 0].ravel(),
-        traj_np[:n_show_phase, :, 1].ravel(),
-    ]
-    for sde_rollout in neural_sde_rollouts:
-        rollout_np = sde_rollout.numpy()
-        phase_components.append(rollout_np[:, 0])
-        phase_components.append(rollout_np[:, 1])
-
-    phase_values = np.concatenate(phase_components)
-    set_symmetric_three_ticks(axp, phase_values, axis="both")
-
-    x0, x1 = axp.get_xlim()
-    ymin_lim, ymax_lim = axp.get_ylim()
-    padding = 0.05
-    axp.set_xlim(x0 - padding * (x1 - x0), x1 + padding * (x1 - x0))
-    axp.set_ylim(
-        ymin_lim - padding * (ymax_lim - ymin_lim),
-        ymax_lim + padding * (ymax_lim - ymin_lim),
+    phase_ax.plot(
+        q_pred, v_pred, color=COLOURS[2], linewidth=1.0, label="Neural ODE"
     )
-
-    phase_fig.savefig(
-        os.path.join(output_dir, "phase_space.pdf"), bbox_inches="tight", dpi=300
-    )
-    plt.show()
-
-    # 3) Position/velocity time series; residuals only when no SDE rollouts
-    from matplotlib.gridspec import GridSpec as _GS
-
-    t = pred_time.cpu().numpy().ravel()
-    traj = trajectories.detach().cpu().numpy()
-    pred = pred_traj.detach().cpu().numpy()
-    ref = ref_traj.detach().cpu().numpy()
-
-    show_residuals = len(neural_sde_rollouts) == 0
-
-    fig3 = plt.figure(figsize=(8.5, 5.3))
-    if show_residuals:
-        gs = _GS(
-            nrows=2,
-            ncols=2,
-            figure=fig3,
-            height_ratios=[1.0, 0.22],
-            hspace=0.0,
-            wspace=0.3,
-        )
-        axQ = fig3.add_subplot(gs[0, 0])
-        axV = fig3.add_subplot(gs[0, 1])
-        axQres = fig3.add_subplot(gs[1, 0], sharex=axQ)
-        axVres = fig3.add_subplot(gs[1, 1], sharex=axV)
-    else:
-        gs = _GS(nrows=1, ncols=2, figure=fig3, wspace=0.3)
-        axQ = fig3.add_subplot(gs[0, 0])
-        axV = fig3.add_subplot(gs[0, 1])
-
-    training_alpha = 1.0 if NotebookConfig.NO_NOISE else 0.05
-
-    # Background training trajectories
-    n_show = min(traj.shape[0], 200)
-    for i in range(n_show):
-        axQ.plot(t, traj[i, :, 0], color="black", linewidth=1.0, alpha=training_alpha)
-        axV.plot(t, traj[i, :, 1], color="black", linewidth=1.0, alpha=training_alpha)
-
-    # Neural SDE rollouts (plot only the first one with full opacity and updated label)
-    if neural_sde_rollouts:
-        sde_rollout = neural_sde_rollouts[0]
-        rollout_np = sde_rollout.numpy()
-        axQ.plot(
-            t,
-            rollout_np[:, 0],
+    if rollout.rollout_tensor.numel() > 0:
+        phase_rollout_np = rollout.rollout_tensor[0].numpy()
+        phase_ax.plot(
+            phase_rollout_np[:, 0],
+            phase_rollout_np[:, 1],
             color=COLOURS[3],
             linewidth=1.0,
             alpha=1.0,
             label="Neural SDE",
         )
-        axV.plot(t, rollout_np[:, 1], color=COLOURS[3], linewidth=1.0, alpha=1.0)
+    phase_ax.set_ylabel(r"$v(q(t))$ [ms$^{-1}$]")
+    phase_ax.set_xlabel(r"$q(t)$ [m]")
+    phase_ax.grid(False)
+    phase_ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left", ncol=1)
 
-    axQ.plot(t, pred[:, 0], color=COLOURS[2], linewidth=1.0, label="Neural ODE")
-    axV.plot(t, pred[:, 1], color=COLOURS[2], linewidth=1.0)
+    if trajectories_np is not None:
+        phase_ax.set_xlim(np.min(trajectories_np[:, :, 0]), np.max(trajectories_np[:, :, 0]))
+        phase_ax.set_ylim(np.min(trajectories_np[:, :, 1]), np.max(trajectories_np[:, :, 1]))
 
-    # Residuals (Neural ODE only)
-    if show_residuals:
-        res_q = pred[:, 0] - ref[:, 0]
-        res_v = pred[:, 1] - ref[:, 1]
-        axQres.plot(t, res_q, color="black", linewidth=1.0)
-        axVres.plot(t, res_v, color="black", linewidth=1.0)
-        axQres.axhline(0.0, color="black", linewidth=0.8)
-        axVres.axhline(0.0, color="black", linewidth=0.8)
-        set_symmetric_three_ticks(axQres, res_q)
-        set_symmetric_three_ticks(axVres, res_v)
+    for phase_spine in phase_ax.spines.values():
+        phase_spine.set_linewidth(1.0)
+    finalise_plot(phase_fig, "phase_space.pdf", str(output_directory), os)
+    return
 
-    # Axis labels
-    axQ.set_ylabel("$q(t)$ [m]")
-    axV.set_ylabel("$v(t)$ [m s$^{-1}]$")
-    if show_residuals:
-        axQres.set_ylabel(r"$e_q$")
-        axVres.set_ylabel(r"$e_v$")
-        axQres.set_xlabel(r"$t$ [s]")
-        axVres.set_xlabel(r"$t$ [s]")
-        plt.setp(axQ.get_xticklabels(), visible=False)
-        plt.setp(axV.get_xticklabels(), visible=False)
-    else:
-        axQ.set_xlabel(r"$t$ [s]")
-        axV.set_xlabel(r"$t$ [s]")
 
-    # Add legends
-    axQ.legend(loc="upper center", bbox_to_anchor=(1, 1.2), ncol=2)
-    # axV.legend(loc="best")
+@app.cell
+def _(
+    COLOURS,
+    data_config,
+    finalise_plot,
+    np,
+    ode_prediction,
+    os,
+    output_directory,
+    plt,
+    rollout,
+    time_grid,
+    trajectories,
+):
+    fig3, (axq, axv) = plt.subplots(1, 2, figsize=(10, 4))
+    base_time = time_grid.detach().cpu().numpy().ravel()
+    trajectories_array = trajectories.detach().cpu().numpy()
+    pred_array = ode_prediction.detach().cpu().numpy()
 
-    # Styling
-    for main_ax in (axQ, axV):
-        try:
-            main_ax.set_box_aspect(1)
-        except Exception:
-            pass
+    if base_time.size != 0:
+        def _build_time_axis(length: int) -> np.ndarray:
+            if length <= 1:
+                return np.array([base_time[0]])
+            return np.linspace(base_time[0], base_time[-1], length)
 
-    axes_to_style = (axQ, axV)
-    if show_residuals:
-        axes_to_style = (*axes_to_style, axQres, axVres)
-    for axis in axes_to_style:
-        axis.grid(False)
-        for spine in axis.spines.values():
-            spine.set_linewidth(1.0)
+        training_time = _build_time_axis(trajectories_array.shape[1])
+        ode_time = _build_time_axis(pred_array.shape[0])
+        ntrain_show = min(50, trajectories_array.shape[0])
+        training_opacity = 1.0 if data_config.noise_disabled else 0.05
+        for itrain in range(ntrain_show):
+            axq.plot(
+                training_time,
+                trajectories_array[itrain, :, 0],
+                alpha=training_opacity,
+                color="gray",
+                linewidth=0.6,
+                label="Training" if itrain == 0 else "",
+            )
+            axv.plot(
+                training_time,
+                trajectories_array[itrain, :, 1],
+                alpha=training_opacity,
+                color="gray",
+                linewidth=0.6,
+                label="Training" if itrain == 0 else "",
+            )
+        if rollout.rollout_tensor.numel() > 0:
+            traj_rollout_np = rollout.rollout_tensor[0].numpy()
+            sde_time = _build_time_axis(traj_rollout_np.shape[0])
+            axq.plot(
+                sde_time,
+                traj_rollout_np[:, 0],
+                color=COLOURS[3],
+                linewidth=1.0,
+                alpha=1.0,
+                label="Neural SDE",
+            )
+            axv.plot(
+                sde_time,
+                traj_rollout_np[:, 1],
+                color=COLOURS[3],
+                linewidth=1.0,
+                alpha=1.0,
+                label="Neural SDE",
+            )
+        axq.plot(
+            ode_time,
+            pred_array[:, 0],
+            color=COLOURS[2],
+            linewidth=1.0,
+            alpha=1.0,
+            label="Neural ODE",
+        )
+        axv.plot(
+            ode_time,
+            pred_array[:, 1],
+            color=COLOURS[2],
+            linewidth=1.0,
+            alpha=1.0,
+            label="Neural ODE",
+        )
+        axq.set_xlabel(r"$t$ [s]")
+        axq.set_ylabel(r"$q(t)$ [m]")
+        axq.grid(False)
+        axv.set_xlabel(r"$t$ [s]")
+        axv.set_ylabel(r"$v(t)$ [m s$^{-1}$]")
+        axv.legend(bbox_to_anchor=(1.05, 1), loc="upper left", ncol=1)
+        axv.grid(False)
+        for ax_item in [axq, axv]:
+            for axis_spine in ax_item.spines.values():
+                axis_spine.set_linewidth(1.0)
+        finalise_plot(fig3, "trajectories.pdf", str(output_directory), os)
+    return
 
-    fig3.savefig(
-        os.path.join(output_dir, "timeseries.pdf"), bbox_inches="tight", dpi=300
-    )
-    plt.show()
+
+@app.cell
+def _(
+    COLOURS,
+    finalise_plot,
+    np,
+    os,
+    output_directory,
+    plt,
+    rollout,
+    sde_stats,
+    time_grid,
+    training_stats,
+):
+    if rollout.rollout_tensor.numel() > 0:
+        fig4, (ax_stats_q, ax_stats_v) = plt.subplots(1, 2, figsize=(10, 3.5))
+        t_stats = time_grid.detach().cpu().numpy().ravel()
+        training_mean_plot = training_stats.mean.detach().cpu().numpy()
+        training_var_plot = training_stats.variance.detach().cpu().numpy()
+        sde_mean_plot = sde_stats.mean.detach().cpu().numpy()
+        sde_var_plot = sde_stats.variance.detach().cpu().numpy()
+
+        training_q_envelope = np.sqrt(training_var_plot[:, 0])
+        sde_q_envelope = np.sqrt(sde_var_plot[:, 0])
+        training_v_envelope = np.sqrt(training_var_plot[:, 1])
+        sde_v_envelope = np.sqrt(sde_var_plot[:, 1])
+
+        ax_stats_q.fill_between(
+            t_stats,
+            training_mean_plot[:, 0] - training_q_envelope,
+            training_mean_plot[:, 0] + training_q_envelope,
+            alpha=0.3,
+            color="black",
+            label="Training mean ± sqrt(var)",
+        )
+        ax_stats_q.plot(
+            t_stats,
+            training_mean_plot[:, 0],
+            color="black",
+            linewidth=2.0,
+            label="Training mean",
+        )
+        ax_stats_q.fill_between(
+            t_stats,
+            sde_mean_plot[:, 0] - sde_q_envelope,
+            sde_mean_plot[:, 0] + sde_q_envelope,
+            alpha=0.3,
+            color=COLOURS[3],
+            label="Neural SDE mean ± sqrt(var)",
+        )
+        ax_stats_q.plot(
+            t_stats,
+            sde_mean_plot[:, 0],
+            color=COLOURS[3],
+            linewidth=2.0,
+            label="Neural SDE mean",
+        )
+        ax_stats_q.set_xlabel(r"$t$ [s]")
+        ax_stats_q.set_ylabel(r"$q(t)$ [m]")
+        ax_stats_q.grid(False)
+
+        ax_stats_v.fill_between(
+            t_stats,
+            training_mean_plot[:, 1] - training_v_envelope,
+            training_mean_plot[:, 1] + training_v_envelope,
+            alpha=0.3,
+            color="black",
+            label=r"Training mean $\pm\sigma$",
+        )
+        ax_stats_v.plot(
+            t_stats,
+            training_mean_plot[:, 1],
+            color="black",
+            linewidth=2.0,
+            label="Training mean",
+        )
+        ax_stats_v.fill_between(
+            t_stats,
+            sde_mean_plot[:, 1] - sde_v_envelope,
+            sde_mean_plot[:, 1] + sde_v_envelope,
+            alpha=0.3,
+            color=COLOURS[3],
+            label=r"Neural SDE mean $\pm\sigma$",
+        )
+        ax_stats_v.plot(
+            t_stats,
+            sde_mean_plot[:, 1],
+            color=COLOURS[3],
+            linewidth=2.0,
+            label="Neural SDE mean",
+        )
+        ax_stats_v.set_xlabel(r"$t$ [s]")
+        ax_stats_v.set_ylabel(r"$v(t)$ [m s$^{-1}$]")
+        ax_stats_v.grid(False)
+        ax_stats_v.legend(bbox_to_anchor=(1.05, 1), loc="upper left", ncol=1)
+
+        for stats_axis in (ax_stats_q, ax_stats_v):
+            for stats_spine in stats_axis.spines.values():
+                stats_spine.set_linewidth(1.0)
+
+        finalise_plot(fig4, "statistics.pdf", str(output_directory), os)
+    return
+
+
+@app.cell
+def _(
+    data_config,
+    np,
+    rollout,
+    sde_stats,
+    system,
+    time_grid,
+    torch,
+    training_stats,
+):
+    if rollout.rollout_tensor.numel() > 0:
+        dt_scalar = float(time_grid[1] - time_grid[0])
+
+        training_mean_metrics = training_stats.mean.detach().cpu().numpy()
+        sde_mean_metrics = sde_stats.mean.detach().cpu().numpy()
+
+        training_q_gradient = np.gradient(training_mean_metrics[:, 0], dt_scalar)
+        sde_q_gradient = np.gradient(sde_mean_metrics[:, 0], dt_scalar)
+
+        training_v_mean = training_mean_metrics[:, 1]
+        sde_v_mean = sde_mean_metrics[:, 1]
+
+        gradient_error_training = float(np.mean(np.abs(training_q_gradient - training_v_mean)))
+        gradient_error_sde = float(np.mean(np.abs(sde_q_gradient - sde_v_mean)))
+
+        sample_state_tensor = training_stats.mean[0, :].detach().cpu().to(torch.float32)
+        diffusion_value = system.diffusion_function(0.0, sample_state_tensor).cpu().numpy()
+        velocity_diffusion_squared = float(diffusion_value[1] ** 2)
+
+        # Metrics for analysis (currently not exported/used)
+        _ = {
+            "gradient_error_training": gradient_error_training,
+            "gradient_error_sde": gradient_error_sde,
+            "velocity_diffusion_squared": velocity_diffusion_squared,
+            "noise_disabled": data_config.noise_disabled,
+        }
     return
 
 
