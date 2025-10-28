@@ -79,7 +79,7 @@ class Hyperparameters:
     external_hidden_variables: int = 0  # Number of external hidden variables
 
     # Training parameters
-    timestep: float = 0.01  # Integration timestep for numerical methods, this perhaps could be adjusted dynamically to satisfy the CFL condition for PDEs
+    timestep: float = 0.01  # Integration timestep for numerical methods, this could perhaps be adjusted dynamically to satisfy the CFL condition for PDEs
     learning_rates: LearningRates = LearningRates(
         drift=0.001,
         diffusion=0.001,
