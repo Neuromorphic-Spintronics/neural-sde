@@ -4,6 +4,8 @@ london_smart_meter.py
 
 /data/
 literature/
+notes/
+
 
 __pycache__/
 .DS_Store

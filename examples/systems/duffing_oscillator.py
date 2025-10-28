@@ -6,8 +6,8 @@ stochastic differential equations (SDEs) with both white and coloured noise.
 
 The dimensionless SDE system is:
     dq(t) = v(t) dt
-    dv(t) = (-alpha q(t) - beta q(t)^3 - mu v(t) + gamma cos(Omega t) + xi(t)) dt + sqrt(2 mu Theta) âŠ™ dW(t)
-    dxi(t) = -1/t_correl_tilde * xi(t) dt + sqrt(2 D_tilde / t_correl_tilde) âŠ™ dW(t)
+    dv(t) = (-alpha q(t) - beta q(t)^3 - mu v(t) + gamma cos(Omega t) + xi(t)) dt + sqrt(2 mu Theta) \\circ dW(t)
+    dxi(t) = -1/t_correl_tilde * xi(t) dt + sqrt(2 D_tilde / t_correl_tilde) \\circ dW(t)
 
 where the following are dimensionless parameters:
     q(t): position
@@ -24,11 +24,21 @@ where the following are dimensionless parameters:
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional, Tuple, cast
+from types import SimpleNamespace
+
+import numpy as np
 import torch
-from typing import Tuple, Optional, Callable
-from examples.parameters.duffing_oscillator import DuffingOscillatorParameters
-from neural_dynamics.core.integrators import stochastic_heun_method
+
+from examples.systems.parameters.duffing_oscillator import (
+    DuffingOscillatorParameters,
+    PhysicalDuffingParameters,
+)
 from neural_dynamics.config import DEVICE
+from neural_dynamics.core.integrators import stochastic_heun_method
+from neural_dynamics.core.types import TrajectoryDataset
 
 
 class DuffingOscillator:
@@ -258,10 +268,6 @@ class DuffingOscillator:
         """
         return trajectory[..., 2]
 
-    def get_drift_function(self) -> Callable[[float, torch.Tensor], torch.Tensor]:
-        """Return the drift function for the system."""
-        return self.drift_function
-
     def potential_energy(self, q: torch.Tensor) -> torch.Tensor:
         """
         Compute the Duffing potential energy.
@@ -322,3 +328,140 @@ class DuffingOscillator:
             Effective potential V_eff(q, xi) = V(q) - xiÂ·q
         """
         return self.potential_energy(q) - xi * q
+
+
+DEFAULT_DATA_DIR = Path("examples/data")
+
+
+@dataclass(frozen=True)
+class DuffingDataConfig:
+    """Configuration for generating Duffing training data."""
+
+    seed: int = 42
+    n_trajectories: int = 4096
+    initial_condition_scale: float = 0.5
+    noise_disabled: bool = False
+    data_dir: Path = field(default_factory=lambda: DEFAULT_DATA_DIR)
+
+    def cache_path(
+        self,
+        *,
+        physical_params: PhysicalDuffingParameters,
+    ) -> Path:
+        """Return cache path with key parameters directly in filename."""
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        
+        scale_str = f"{self.initial_condition_scale:.2f}".replace(".", "p")
+        noise_tag = "noise_off" if self.noise_disabled else "noise_on"
+        
+        # Include key physical parameters directly in filename
+        filename = (
+            f"duffing_seed{self.seed}_n{self.n_trajectories}_{noise_tag}_"
+            f"scale{scale_str}_ls{physical_params.linear_stiffness:.1f}_"
+            f"nls{physical_params.nonlinear_stiffness:.1f}_damp{physical_params.damping_coefficient:.2f}.pt"
+        )
+        return self.data_dir / filename
+
+
+def generate_duffing_training_data(
+    *,
+    system: DuffingOscillator,
+    n_trajectories: int,
+    initial_condition_scale: float,
+    device: torch.device = DEVICE,
+) -> TrajectoryDataset:
+    """Generate batched Duffing trajectories for training."""
+
+    state_dim = system.get_state_dimension()
+    initial_conditions = (
+        torch.randn(n_trajectories, state_dim, device=device)
+        * initial_condition_scale
+    )
+
+    time_grid, trajectories = system.integrate_sde(initial_conditions)
+    return cast(
+        TrajectoryDataset,
+        SimpleNamespace(
+            time_grid=time_grid.to(device),
+            trajectories=trajectories.to(device),
+        ),
+    )
+
+
+def load_duffing_training_data(
+    path: Path,
+    *,
+    device: torch.device = DEVICE,
+) -> TrajectoryDataset:
+    """Load cached Duffing trajectories from disk."""
+
+    saved = torch.load(path, map_location=device)
+    if "time_grid" not in saved or "trajectories" not in saved:
+        raise KeyError(
+            "Cached Duffing data must contain 'time_grid' and 'trajectories'."
+        )
+    return cast(
+        TrajectoryDataset,
+        SimpleNamespace(
+            time_grid=saved["time_grid"].to(device),
+            trajectories=saved["trajectories"].to(device),
+        ),
+    )
+
+
+def save_duffing_training_data(data: TrajectoryDataset, path: Path) -> None:
+    """Persist Duffing training data to a torch archive."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(
+        {
+            "time_grid": data.time_grid.detach().cpu(),
+            "trajectories": data.trajectories.detach().cpu(),
+        },
+        path,
+    )
+
+
+def prepare_duffing_training_data(
+    *,
+    config: DuffingDataConfig,
+    physical_params: Optional[PhysicalDuffingParameters] = None,
+    regenerate: bool = False,
+    device: torch.device = DEVICE,
+) -> tuple[Path, TrajectoryDataset, DuffingOscillator, PhysicalDuffingParameters]:
+    """Generate or load Duffing training data and return associated artefacts."""
+
+    resolved_params = (
+        physical_params
+        if physical_params is not None
+        else PhysicalDuffingParameters.for_training(noise_disabled=config.noise_disabled)
+    )
+    cache_path = config.cache_path(physical_params=resolved_params)
+
+    if cache_path.exists() and not regenerate:
+        data = load_duffing_training_data(cache_path, device=device)
+        system = DuffingOscillator(resolved_params.to_dimensionless())
+        return cache_path, data, system, resolved_params
+
+    torch.manual_seed(config.seed)
+    np.random.seed(config.seed)
+
+    system = DuffingOscillator(resolved_params.to_dimensionless())
+    data = generate_duffing_training_data(
+        system=system,
+        n_trajectories=config.n_trajectories,
+        initial_condition_scale=config.initial_condition_scale,
+        device=device,
+    )
+    save_duffing_training_data(data, cache_path)
+    return cache_path, data, system, resolved_params
+
+
+__all__ = [
+    "DuffingOscillator",
+    "DuffingDataConfig",
+    "generate_duffing_training_data",
+    "load_duffing_training_data",
+    "save_duffing_training_data",
+    "prepare_duffing_training_data",
+]
