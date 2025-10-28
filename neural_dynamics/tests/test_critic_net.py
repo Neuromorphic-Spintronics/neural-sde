@@ -49,7 +49,7 @@ class TestCriticNet:
         trajectory_segment = torch.randn(batch_size, trajectory_length, state_dim).to(
             DEVICE
         )
-        scores = disc.score(trajectory_segment)
+        scores = disc(trajectory_segment)
 
         assert scores.shape == (batch_size, 1)
         assert not torch.any(torch.isnan(scores))
@@ -73,7 +73,7 @@ class TestCriticNet:
             batch_size, trajectory_length, state_dim, requires_grad=True, device=DEVICE
         )
 
-        scores = disc.score(trajectory_segment)
+        scores = disc(trajectory_segment)
         loss = scores.sum()
         loss.backward()
 
@@ -96,9 +96,9 @@ class TestCriticNet:
         # Wrong trajectory length
         wrong_trajectory = torch.randn(4, trajectory_length + 5, state_dim).to(DEVICE)
         with pytest.raises(ValueError):
-            disc.score(wrong_trajectory)
+            disc(wrong_trajectory)
 
         # Wrong state dimension
         wrong_state_dim = torch.randn(4, trajectory_length, state_dim + 1).to(DEVICE)
         with pytest.raises(ValueError):
-            disc.score(wrong_state_dim)
+            disc(wrong_state_dim)

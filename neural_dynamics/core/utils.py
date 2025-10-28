@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Any, Tuple, List, Final
+from typing import Dict, Any, Tuple, List, Final, Optional, Callable, Mapping, Sequence
 
 import torch
 import matplotlib.axes
@@ -9,11 +10,44 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.ticker import LogLocator, NullFormatter
 from torch import Tensor
+from torch.nn import Module
 
 from ..models.base import DriftNet
 from examples.systems.registry import get_system_info
 from neural_dynamics.core.hyperparameters import NetworkArchitecture
 from neural_dynamics.config import DEVICE
+
+
+def generate_output_directory_name(
+    base_path: str, 
+    hyperparameters, 
+    prefix: str = ""
+) -> str:
+    """
+    Generate a descriptive output directory name based on hyperparameters.
+    
+    Args:
+        base_path: Base directory path
+        hyperparameters: Hyperparameters object
+        prefix: Optional prefix for the directory name
+        
+    Returns:
+        Full path to the output directory
+    """
+    components = []
+    if prefix:
+        components.append(prefix)
+    
+    components.extend([
+        f"epochs-{hyperparameters.number_of_epochs}",
+        f"gan-{hyperparameters.number_of_gan_epochs}", 
+        f"batch-{hyperparameters.batch_size}",
+        f"lr-{hyperparameters.learning_rates.drift}",
+        f"mm-{hyperparameters.moment_matching_enabled}"
+    ])
+    
+    directory_name = "_".join(components)
+    return f"{base_path}/{directory_name}"
 
 
 def _generate_hyperparameter_string(
@@ -164,6 +198,319 @@ def set_symmetric_three_ticks(ax, data, axis="y"):
         ax.set_xticks(ticks)
         ax.set_ylim(ticks[0], ticks[-1])
         ax.set_yticks(ticks)
+
+
+@dataclass
+class RolloutBatch:
+    """Rollout trajectories sampled from a dynamical model."""
+
+    rollouts: list[Tensor]
+    rollout_tensor: Tensor
+    sample_indices: Tensor
+    training_subset: Tensor
+
+
+@dataclass
+class TrajectoryStatistics:
+    """Mean and variance statistics computed from a batch of trajectories."""
+
+    mean: Tensor
+    variance: Tensor
+
+
+def compute_statistics(
+    trajectories: Tensor,
+    *,
+    dim: int = 0,
+    unbiased: bool = False,
+) -> TrajectoryStatistics:
+    """Compute basic statistics for a batch of trajectories.
+
+    Args:
+        trajectories: Tensor containing trajectories. The reduction dimension is
+            controlled by ``dim`` and defaults to the batch axis.
+        dim: Dimension along which the statistics are computed.
+        unbiased: Whether to use the unbiased estimator for the variance.
+
+    Returns:
+        TrajectoryStatistics with mean and variance tensors.
+    """
+
+    if trajectories.numel() == 0:
+        raise ValueError("Cannot compute statistics for an empty tensor.")
+
+    mean = torch.mean(trajectories, dim=dim)
+    variance = torch.var(trajectories, dim=dim, unbiased=unbiased)
+    return TrajectoryStatistics(mean=mean, variance=variance)
+
+
+def compare_statistics(
+    training: TrajectoryStatistics,
+    generated: TrajectoryStatistics,
+    *,
+    reduction: str = "mean",
+) -> dict[str, Any]:
+    """Compare two sets of trajectory statistics.
+
+    Args:
+        training: Reference statistics, typically computed from training data.
+        generated: Statistics computed from generated trajectories.
+        reduction: Reduction to apply to the absolute differences. Supported
+            options are ``"mean"``, ``"max"``, and ``"none"``.
+
+    Returns:
+        Dictionary containing absolute differences of the statistics. The
+        returned values are floats when a reduction is applied, or tensors when
+        ``reduction`` is set to ``"none"``.
+    """
+
+    if training.mean.shape != generated.mean.shape:
+        raise ValueError("Mean tensors must share the same shape for comparison.")
+    if training.variance.shape != generated.variance.shape:
+        raise ValueError(
+            "Variance tensors must share the same shape for comparison."
+        )
+
+    mean_diff = torch.abs(training.mean - generated.mean)
+    var_diff = torch.abs(training.variance - generated.variance)
+
+    if reduction == "none":
+        return {
+            "mean_abs_difference": mean_diff,
+            "variance_abs_difference": var_diff,
+        }
+
+    if reduction == "mean":
+        reducer = torch.mean
+    elif reduction == "max":
+        reducer = torch.max
+    else:
+        raise ValueError(
+            "Reduction must be one of {'mean', 'max', 'none'}, "
+            f"received '{reduction}'."
+        )
+
+    return {
+        "mean_abs_difference": reducer(mean_diff).item(),
+        "variance_abs_difference": reducer(var_diff).item(),
+    }
+
+
+def sample_sde_rollouts(
+    *,
+    model: Callable[[Tensor, Tensor], Tensor],
+    trajectories: Tensor,
+    time_grid: Tensor,
+    num_samples: int,
+    device: torch.device = DEVICE,
+) -> RolloutBatch:
+    """Sample rollouts from a dynamical model for comparison with data.
+
+    Args:
+        model: Callable that evolves a batch of initial states along ``time_grid``.
+        trajectories: Reference trajectories used to select initial conditions.
+        time_grid: Time grid for integration.
+        num_samples: Maximum number of rollouts to generate.
+        device: Device on which sampling indices are generated.
+
+    Returns:
+        RolloutBatch containing the generated trajectories and bookkeeping
+        information.
+    """
+
+    if num_samples <= 0:
+        raise ValueError("num_samples must be a positive integer.")
+    if trajectories.dim() < 3:
+        raise ValueError(
+            "trajectories tensor must have shape (batch, time, features)."
+        )
+
+    dataset_size = trajectories.shape[0]
+    if dataset_size == 0:
+        raise ValueError("Cannot sample rollouts without reference trajectories.")
+
+    actual_samples = min(num_samples, dataset_size)
+    if actual_samples == dataset_size:
+        subset_indices = torch.arange(dataset_size, device=device)
+    else:
+        subset_indices = torch.randperm(dataset_size, device=device)[:actual_samples]
+
+    initial_state_batch = trajectories[subset_indices, 0, :]
+
+    with torch.no_grad():
+        rollout_tensor = model(initial_state_batch, time_grid)
+
+    training_subset = trajectories[subset_indices].detach().cpu()
+    rollout_cpu = rollout_tensor.detach().cpu()
+
+    return RolloutBatch(
+        rollouts=[rollout_cpu[i] for i in range(rollout_cpu.size(0))],
+        rollout_tensor=rollout_cpu,
+        sample_indices=subset_indices.detach().cpu(),
+        training_subset=training_subset,
+    )
+
+
+def save_statistics(
+    *,
+    output_dir: Path | str,
+    training: TrajectoryStatistics,
+    generated: TrajectoryStatistics,
+    dimension_labels: Optional[Sequence[str]] = None,
+    training_filename: str = "training_statistics.txt",
+    generated_filename: str = "generated_statistics.txt",
+) -> None:
+    """Persist trajectory statistics to disk in a tabular format.
+
+    Args:
+        output_dir: Directory where the statistics files are written.
+        training: Statistics computed from the reference data.
+        generated: Statistics computed from generated trajectories.
+        dimension_labels: Optional labels for the dynamical dimensions used to
+            annotate the saved files.
+        training_filename: Output filename for the training statistics.
+        generated_filename: Output filename for the generated statistics.
+    """
+
+    if training.mean.shape != generated.mean.shape:
+        raise ValueError("Training and generated means must share the same shape.")
+    if training.variance.shape != generated.variance.shape:
+        raise ValueError(
+            "Training and generated variances must share the same shape."
+        )
+
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    def _prepare_stats(stats: TrajectoryStatistics) -> Tensor:
+        mean_tensor = stats.mean.detach().cpu()
+        var_tensor = stats.variance.detach().cpu()
+        if mean_tensor.dim() == 1:
+            mean_tensor = mean_tensor.unsqueeze(0)
+        if var_tensor.dim() == 1:
+            var_tensor = var_tensor.unsqueeze(0)
+        return torch.cat([mean_tensor, var_tensor], dim=-1)
+
+    prepared_training = _prepare_stats(training)
+    prepared_generated = _prepare_stats(generated)
+
+    num_dimensions = prepared_training.shape[-1] // 2
+    if dimension_labels is None:
+        labels = [f"dim{index}" for index in range(num_dimensions)]
+    else:
+        labels = list(dimension_labels)
+        if len(labels) != num_dimensions:
+            raise ValueError(
+                "dimension_labels length must match the number of state dimensions."
+            )
+
+    header = ",".join(
+        [f"mean_{label}" for label in labels]
+        + [f"variance_{label}" for label in labels]
+    )
+
+    np.savetxt(
+        output_path / training_filename,
+        prepared_training.numpy(),
+        header=header,
+    )
+    np.savetxt(
+        output_path / generated_filename,
+        prepared_generated.numpy(),
+        header=header,
+    )
+
+
+def save_model_checkpoints(
+    output_dir: Path | str,
+    *,
+    models: Mapping[str, Module],
+    model_filenames: Mapping[str, str],
+    metrics: Optional[Mapping[str, Sequence[float]]] = None,
+    metric_filenames: Optional[Mapping[str, str]] = None,
+) -> None:
+    """Save model state dictionaries and scalar histories to disk.
+
+    Args:
+        output_dir: Directory used to store the checkpoints.
+        models: Mapping of logical names to models whose ``state_dict`` is saved.
+        model_filenames: Mapping of model names to filenames.
+        metrics: Optional mapping of metric names to sequences of scalar values.
+        metric_filenames: Mapping of metric names to filenames.
+    """
+
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    for name, model in models.items():
+        if name not in model_filenames:
+            raise KeyError(f"Missing filename for model '{name}'.")
+        torch.save(model.state_dict(), output_path / model_filenames[name])
+
+    if metrics is None:
+        return
+
+    if metric_filenames is None:
+        raise ValueError("metric_filenames must be provided when metrics are saved.")
+
+    for name, values in metrics.items():
+        if name not in metric_filenames:
+            raise KeyError(f"Missing filename for metric '{name}'.")
+        torch.save(list(values), output_path / metric_filenames[name])
+
+
+def load_model_checkpoints(
+    output_dir: Path | str,
+    *,
+    model_factories: Mapping[str, Callable[[], Module]],
+    model_filenames: Mapping[str, str],
+    metric_filenames: Optional[Mapping[str, str]] = None,
+    device: torch.device = DEVICE,
+) -> Optional[tuple[dict[str, Module], dict[str, list[float]]]]:
+    """Load model checkpoints and associated scalar histories if available.
+
+    Args:
+        output_dir: Directory that potentially contains the checkpoints.
+        model_factories: Mapping from names to zero-argument callables that
+            construct models before loading their state dictionaries.
+        model_filenames: Mapping from model names to filenames.
+        metric_filenames: Optional mapping of metric names to filenames.
+        device: Device used when loading the checkpoints.
+
+    Returns:
+        ``None`` if any required file is missing. Otherwise, a tuple containing a
+        mapping of model names to loaded models and a mapping of metric names to
+        lists of scalar values.
+    """
+
+    output_path = Path(output_dir)
+
+    required_files = [output_path / model_filenames[name] for name in model_factories]
+    if metric_filenames is not None:
+        required_files.extend(output_path / fname for fname in metric_filenames.values())
+
+    if not all(path.exists() for path in required_files):
+        return None
+
+    models: dict[str, Module] = {}
+    for name, factory in model_factories.items():
+        if name not in model_filenames:
+            raise KeyError(f"Missing filename for model '{name}'.")
+        model = factory()
+        state_dict = torch.load(
+            output_path / model_filenames[name],
+            map_location=device,
+        )
+        model.load_state_dict(state_dict)
+        model.to(device)
+        models[name] = model
+
+    metrics: dict[str, list[float]] = {}
+    if metric_filenames is not None:
+        for name, filename in metric_filenames.items():
+            metrics[name] = list(torch.load(output_path / filename))
+
+    return models, metrics
 
 
 
@@ -317,42 +664,3 @@ def plot_phase_space_comparison(
     if show_plot:
         plt.show()
     plt.close()
-
-
-class MinMaxScaler:
-    """
-    A PyTorch-based min-max scaler to normalise a tensor to a given range,
-    typically [0, 1].
-    """
-    def __init__(self):
-        self.min_val = None
-        self.max_val = None
-
-    def fit_transform(self, tensor: torch.Tensor) -> torch.Tensor:
-        """
-        Fits the scaler to the data and returns the transformed tensor.
-        
-        Args:
-            tensor: The input tensor to scale.
-            
-        Returns:
-            The tensor scaled to the [0, 1] range.
-        """
-        self.min_val = torch.min(tensor)
-        self.max_val = torch.max(tensor)
-        # Add a small epsilon to avoid division by zero if max == min
-        return (tensor - self.min_val) / (self.max_val - self.min_val + 1e-8)
-
-    def inverse_transform(self, tensor: torch.Tensor) -> torch.Tensor:
-        """
-        Applies the inverse transformation to a scaled tensor.
-        
-        Args:
-            tensor: The scaled tensor.
-            F
-        Returns:
-            The tensor scaled back to its original range.
-        """
-        if self.min_val is None or self.max_val is None:
-            raise RuntimeError("Scaler has not been fitted yet. Call fit_transform first.")
-        return tensor * (self.max_val - self.min_val + 1e-8) + self.min_val

@@ -4,13 +4,7 @@ from typing import Any, Dict, List
 
 # Import system-specific classes for implemented systems
 from examples.systems.duffing_oscillator import DuffingOscillator
-from examples.parameters.duffing_oscillator import PhysicalDuffingParameters
-
-# Leaky integrator is not implemented yet, so we don't import its classes.
-# When it is implemented, uncomment the following lines:
-# from systems.leaky_integrator import LeakyIntegrator
-# from parameters.leaky_integrator import PhysicalLeakyIntegratorParameters
-
+from examples.systems.parameters.duffing_oscillator import PhysicalDuffingParameters
 
 SYSTEM_REGISTRY: Dict[str, Dict[str, Any]] = {
     "duffing": {
@@ -24,7 +18,6 @@ SYSTEM_REGISTRY: Dict[str, Dict[str, Any]] = {
         "default_hidden_layers": [128, 128, 128],
         "state_dimension": 2,  # Position and velocity are the core state
         "full_state_dimension": 3,  # Includes auxiliary noise state
-        "get_drift_function": DuffingOscillator.get_drift_function,
     },
 }
 

@@ -9,6 +9,26 @@ from matplotlib.text import Text
 from neural_dynamics.core.utils import COLOURS, set_default_plotting_style
 
 
+def setup_matplotlib_style(use_tex: bool = True) -> None:
+    """Configure matplotlib using the shared neural_dynamics style helper."""
+    try:
+        set_default_plotting_style(use_tex=use_tex)
+    except Exception:
+        if use_tex:
+            print("LaTeX not found, using default plotting style.")
+            set_default_plotting_style(use_tex=False)
+        else:
+            raise
+    plt.rcParams["axes.linewidth"] = 1.0
+
+
+def finalise_plot(fig, filename, output_dir, os):
+    """Common plot finalization: tight layout, save, and show."""
+    plt.tight_layout()
+    fig.savefig(os.path.join(output_dir, filename), bbox_inches="tight", dpi=300)
+    plt.show()
+
+
 def _measure_pair_kerned_advances(fig, sample_text, fontprops):
     """Return per‑character advances (in pixels) that include pair kerning.
 
@@ -54,11 +74,10 @@ def _apply_pair_adjustments(text, advances):
 
 def plot_nanoring_results(
     *,
-    training_losses: list[float],
-    validation_losses: list[float],
     time_axis: np.ndarray,
     true_sequence: torch.Tensor,
-    predicted_sequence: torch.Tensor,
+    predicted_sequence_ode: torch.Tensor,
+    predicted_sequence_sde: torch.Tensor,
     h_field: torch.Tensor,
     all_train_sequences: np.ndarray,
     output_dir: str,
@@ -72,22 +91,23 @@ def plot_nanoring_results(
         print("LaTeX not found, using default plotting style.")
         set_default_plotting_style(use_tex=False)
 
-    fig, (ax1, ax2) = plt.subplots(
-        2, 1, figsize=(12, 8), gridspec_kw={"height_ratios": [1, 3]}, dpi=120
-    )
-
-    # --- Losses ---
-    ax1.semilogy(training_losses, label="Training Loss", color=COLOURS[0])
-    ax1.semilogy(validation_losses, label="Validation Loss", color=COLOURS[1])
-    ax1.set_ylabel("Loss")
-    ax1.set_xlabel("Epoch")
-    ax1.legend()
+    fig, ax2 = plt.subplots(figsize=(12, 6), dpi=120)
 
     # --- Trajectories ---
     ax2_h = ax2.twinx()
-    ax2.plot(time_axis, all_train_sequences.T, color='black', alpha=0.01, label='_nolegend_', zorder=2)
-    ax2.plot(time_axis, true_sequence.cpu().numpy(), label="Ground Truth", color=COLOURS[3], linewidth=2, zorder=3)
-    ax2.plot(time_axis, predicted_sequence.cpu().numpy(), label="Predicted Rollout", color=COLOURS[2], linestyle='--', linewidth=2, zorder=3)
+    
+    # Plot training sequences (already denormalized in the caller)
+    for train_seq in all_train_sequences:
+        ax2.plot(time_axis, train_seq, color='black', alpha=0.01, label='_nolegend_', zorder=2)
+    
+    # Plot predictions and ground truth
+    true_seq_np = true_sequence.cpu().numpy() if hasattr(true_sequence, 'cpu') else true_sequence
+    pred_ode_np = predicted_sequence_ode.cpu().numpy() if hasattr(predicted_sequence_ode, 'cpu') else predicted_sequence_ode
+    pred_sde_np = predicted_sequence_sde.cpu().numpy() if hasattr(predicted_sequence_sde, 'cpu') else predicted_sequence_sde
+    
+    ax2.plot(time_axis, true_seq_np, label="Ground Truth", color=COLOURS[3], linewidth=2, zorder=3)
+    ax2.plot(time_axis, pred_ode_np, label="Neural ODE", color=COLOURS[4], linestyle='-.', linewidth=2, zorder=3)
+    ax2.plot(time_axis, pred_sde_np, label="Neural SDE", color=COLOURS[2], linestyle='--', linewidth=2, zorder=3)
 
     h_colour = COLOURS[1]
     ax2_h.plot(time_axis, h_field.cpu().numpy(), label=r'$H(t)$', color=h_colour, linestyle=':', linewidth=2, zorder=3)
@@ -97,6 +117,10 @@ def plot_nanoring_results(
     ax2.legend(loc='upper left')
     ax2.grid(False)
     ax2_h.set_ylabel(r'$H(t)$ [Oe]')
+
+    # Set x-axis limits to start at 0 and end at the last time point
+    ax2.set_xlim(0, float(time_axis[-1]))
+    ax2_h.set_xlim(0, float(time_axis[-1]))
 
     # Ensure renderer exists for measurements below
     fig.canvas.draw()
