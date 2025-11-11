@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Any
 
 import torch
 from torch import Tensor, nn
@@ -69,8 +69,22 @@ class NeuralODE(nn.Module):
         device: torch.device,
         validation_split: float = 0.2,
         early_stopping_patience: Optional[int] = None,
+        wandb_run: Optional[Any] = None,
     ) -> "NeuralODE":
-        """Train the drift network using batched trajectory supervision."""
+        """Train the drift network using batched trajectory supervision.
+
+        Args:
+            hyperparameters: Training hyperparameters
+            trajectories: Training trajectories [batch, time, state]
+            time_grid: Time grid for trajectories
+            device: Device for training
+            validation_split: Fraction of data to use for validation
+            early_stopping_patience: Early stopping patience (None uses hyperparameter default)
+            wandb_run: Optional W&B run object for logging training progress
+
+        Returns:
+            Trained NeuralODE instance
+        """
 
         if trajectories.ndim != 3:
             raise ValueError("trajectories must have shape [batch, time, state]")
@@ -139,6 +153,7 @@ class NeuralODE(nn.Module):
             early_stopping_patience=early_stop,
             device=device,
             batch_preparation_fn=batch_preparation_fn,
+            wandb_run=wandb_run,
         )
 
         trained_drift.eval()

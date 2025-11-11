@@ -38,7 +38,7 @@ def _():
         DEFAULT_MODEL_FILENAMES,
     )
     from examples.systems.parameters.nanorings import NanoringsHyperparameters
-    from examples.utils.plotting import plot_nanoring_results, setup_matplotlib_style
+    from examples.utils.plotting import plot_nanoring_results, setup_matplotlib_style, finalise_plot
     from torch.utils.data import DataLoader, TensorDataset
     return (
         COLOURS,
@@ -55,6 +55,7 @@ def _():
         TensorDataset,
         compare_statistics,
         compute_statistics,
+        finalise_plot,
         np,
         os,
         plot_nanoring_results,
@@ -90,6 +91,28 @@ def _(NanoringsHyperparameters, Path, torch):
     print("\nData is already standardized per-trajectory (zero mean, unit variance)")
     print(f"Training AMR - mean: {processed_data['train_amr_main_norm'].mean():.4f}, std: {processed_data['train_amr_main_norm'].std():.4f}")
     print(f"Training H-field - mean: {processed_data['train_h_main'].mean():.4f}, std: {processed_data['train_h_main'].std():.4f}")
+    total_windows = (
+        processed_data["train_amr_main_norm"].shape[0]
+        + processed_data["val_amr_main_norm"].shape[0]
+    )
+    window_length = processed_data.get(
+        "window_length", processed_data["train_amr_main_norm"].shape[1]
+    )
+    dt = (
+        processed_data["dt"].item()
+        if hasattr(processed_data["dt"], "item")
+        else float(processed_data["dt"])
+    )
+    print(f"Window length: {window_length} steps (~{window_length * dt:.4f}s)")
+    print(f"Total windows considered (train+val): {total_windows}")
+    print(
+        f"Total samples seen: {total_windows * window_length} "
+        f"(train+val across all signals)"
+    )
+    window_signal_ids = processed_data.get("window_signal_ids")
+    if window_signal_ids is not None:
+        unique_signals = window_signal_ids.unique()
+        print(f"Distinct signals contributing windows: {unique_signals.numel()}")
     return config, processed_data
 
 
@@ -166,10 +189,10 @@ def _(DEVICE, DriftNet, NetworkArchitecture, config, os):
     """Define drift network architecture for Neural ODE.
 
     The network learns the deterministic dynamics: dx/dt = f(x, t, u)
-    Input features: AMR(1), H-field(1), time encoding(2), context features(10)
+    Input features: AMR(1), H-field(1), time encoding(2)
     """
     drift_net_arch = NetworkArchitecture(
-        input_size=1 + 1 + 2 + config.CONTEXT_POINTS + config.CONTEXT_POINTS,  # Total: 14 features (5 context points for AMR and H)
+        input_size=1 + 1 + 2,  # amr, h, sin(wt), sin(2wt)
         hidden_sizes=[512, 512, 512, 256],  # Large capacity for complex AMR dynamics
         output_size=1,  # Single state: AMR signal
     )
@@ -229,16 +252,12 @@ def _(
 
         # Create trajectory-level datasets
         train_dataset = TensorDataset(
-            processed_data["train_h_context"],
-            processed_data["train_amr_context"],
             processed_data["train_h_main"],
             processed_data["train_amr_main_norm"],
             processed_data["train_sin_time_1"],
             processed_data["train_sin_time_2"],
         )
         val_dataset = TensorDataset(
-            processed_data["val_h_context"],
-            processed_data["val_amr_context"],
             processed_data["val_h_main"],
             processed_data["val_amr_main_norm"],
             processed_data["val_sin_time_1"],
@@ -257,8 +276,6 @@ def _(
 
             Args:
                 raw_batch: Tuple of tensors with shapes:
-                    - h_ctx:       [B, C_h]  trajectory-level H contexts
-                    - amr_ctx:     [B, C_y]  trajectory-level AMR contexts  
                     - h_main:      [B, T]    H time series
                     - amr_main:    [B, T]    AMR time series (target signal y)
                     - sin_t1:      [B, T]    sin(2π t) feature
@@ -269,7 +286,7 @@ def _(
                 - net_input:       [B*(T-1), F] concatenated features per time step
                 - true_derivatives:[B*(T-1), 1] finite-difference dy/dt target
             """
-            h_ctx, amr_ctx, h_main, amr_main, sin_t1, sin_t2 = raw_batch
+            h_main, amr_main, sin_t1, sin_t2 = raw_batch
 
             # Current and next AMR values: shapes [B, T-1]
             current = amr_main[:, :-1]  # y[t]
@@ -281,12 +298,8 @@ def _(
                 [current, h_main[:, :-1], sin_t1[:, :-1], sin_t2[:, :-1]], dim=-1
             ).reshape(B * T, -1).contiguous()
 
-            # Concatenate contexts [B, C_h+C_y], broadcast to [B, T, C], then flatten
-            ctx = torch.cat([h_ctx, amr_ctx], dim=1)
-            ctx_flat = ctx.unsqueeze(1).expand(B, T, -1).reshape(B * T, -1).contiguous()
-
-            # Final model input: [amr, h, sin1, sin2, h_ctx..., amr_ctx...]
-            net_input = torch.cat([step_features, ctx_flat], dim=1)
+            # Final model input: [amr, h, sin1, sin2]
+            net_input = step_features
 
             # Supervision: finite difference dy/dt (teacher forcing)
             dt = processed_data["dt"]
@@ -341,15 +354,13 @@ def _(
     traj_idx_ode_eval = 0
 
     with torch.no_grad():
-        # Extract initial state and context features (standardised space)
+        # Extract initial state (standardised space)
         y0_ode = (
             processed_data["val_amr_main_norm"][traj_idx_ode_eval, 0]
             .unsqueeze(0)
             .unsqueeze(0)
             .to(DEVICE)
         )
-        h_context_ode = processed_data["val_h_context"][traj_idx_ode_eval].unsqueeze(0).to(DEVICE)
-        amr_context_ode = processed_data["val_amr_context"][traj_idx_ode_eval].unsqueeze(0).to(DEVICE)
         val_h_main_ode = processed_data["val_h_main"][traj_idx_ode_eval].to(DEVICE)
 
         # Define trajectory-specific drift function
@@ -368,9 +379,7 @@ def _(
             sin_t_1 = torch.sin(2 * torch.pi * t_norm_tensor)
             sin_t_2 = torch.sin(4 * torch.pi * t_norm_tensor)
             
-            net_input = torch.cat(
-                [y, h_t, sin_t_1, sin_t_2, h_context_ode, amr_context_ode], dim=1
-            )
+            net_input = torch.cat([y, h_t, sin_t_1, sin_t_2], dim=1)
             return trained_drift_net(net_input)
 
         # Rollout Neural ODE prediction
@@ -542,12 +551,13 @@ def _(
     else:
         print("Training Neural SDE from scratch...")
         # Run GAN training to fit the diffusion term
-        generator_losses, critic_losses = fit_neural_sde_gan(
+        # Pass full trajectories - random windows will be sampled internally
+        generator_losses, critic_losses, _ = fit_neural_sde_gan(
             drift_network=neural_ode.drift_net,  # Use drift from the NeuralODE object
             diffusion_network=diffusion_net,
             critic_network=critic_net,
-            time_grid=time_grid_for_sde[:critic_window],  # Use only critic window
-            stochastic_trajectories=trajectories_for_sde[:, :critic_window, :],
+            time_grid=time_grid_for_sde,  # Pass full time grid
+            stochastic_trajectories=trajectories_for_sde,  # Pass full trajectories
             hyperparameters=hyperparameters,
             random_seed=42069,
         )
@@ -570,23 +580,51 @@ def _(
 
 
 @app.cell
-def _(DEVICE, config, neural_sde, processed_data, sample_sde_rollouts):
+def _(DEVICE, config, neural_sde, processed_data, sample_sde_rollouts_with_inputs, torch):
     """Generate SDE rollouts for evaluation.
 
     Samples multiple stochastic trajectories from the trained SDE to assess
     whether the learnt dynamics match the true data distribution.
+    
+    Now uses sample_sde_rollouts_with_inputs to properly include exogenous signals
+    (H field, sin/cos time features) that the nanorings system depends on.
     """
     # Prepare standardised trajectories for rollout generation
     train_amr_for_rollout = processed_data["train_amr_main_norm"].to(DEVICE)
     trajectories_for_rollout = train_amr_for_rollout.unsqueeze(-1)
     time_grid_sde = processed_data["time_grid"].to(DEVICE)
+    
+    # Prepare external inputs: [batch, input_dim, time]
+    # input_dim = 3: H field + sin(wt) + sin(2wt)
+    num_trajectories = train_amr_for_rollout.shape[0]
+    
+    # Get H field for all training trajectories [batch, time]
+    train_h_main = processed_data["train_h_main"].to(DEVICE)
+    
+    # Compute time features for all timesteps
+    t_min = processed_data["t_min"].item()
+    t_max = processed_data["t_max"].item()
+    t_norm = (time_grid_sde - t_min) / (t_max - t_min)
+    sin_t_1 = torch.sin(2 * torch.pi * t_norm)
+    sin_t_2 = torch.sin(4 * torch.pi * t_norm)
+    
+    # Broadcast time features to batch dimension [batch, time]
+    sin_t_1_batch = sin_t_1.unsqueeze(0).expand(num_trajectories, -1)
+    sin_t_2_batch = sin_t_2.unsqueeze(0).expand(num_trajectories, -1)
+    
+    # Stack external inputs: [batch, input_dim, time]
+    external_inputs = torch.stack([train_h_main, sin_t_1_batch, sin_t_2_batch], dim=1)
 
     print("\n" + "="*60)
-    print("Generating SDE Rollouts")
+    print("Generating SDE Rollouts with Exogenous Inputs")
     print("="*60)
-    rollout = sample_sde_rollouts(
+    print(f"External inputs shape: {external_inputs.shape} [batch, input_dim=3, time]")
+    print("  - H field + sin(wt) + sin(2wt)")
+    
+    rollout = sample_sde_rollouts_with_inputs(
         model=neural_sde,
         trajectories=trajectories_for_rollout,
+        external_inputs=external_inputs,
         time_grid=time_grid_sde,
         num_samples=config.NUMBER_OF_SDE_ROLLOUT_SAMPLES,
         device=DEVICE,
@@ -628,8 +666,6 @@ def _(
             .unsqueeze(0)
             .to(DEVICE)
         )
-        h_context_sde = processed_data["val_h_context"][traj_idx_ode_eval].unsqueeze(0).to(DEVICE)
-        amr_context_sde = processed_data["val_amr_context"][traj_idx_ode_eval].unsqueeze(0).to(DEVICE)
         val_h_main_sde = processed_data["val_h_main"][traj_idx_ode_eval].to(DEVICE)
         time_grid_sde_eval = processed_data["time_grid"].to(DEVICE)
 
@@ -648,9 +684,7 @@ def _(
             sin_t_1 = torch.sin(2 * torch.pi * t_norm_tensor)
             sin_t_2 = torch.sin(4 * torch.pi * t_norm_tensor)
             
-            net_input = torch.cat(
-                [y, h_t, sin_t_1, sin_t_2, h_context_sde, amr_context_sde], dim=1
-            )
+            net_input = torch.cat([y, h_t, sin_t_1, sin_t_2], dim=1)
             return neural_sde.drift_net(net_input)
 
         def diffusion_func_sde(t, y):
@@ -667,9 +701,7 @@ def _(
             sin_t_1 = torch.sin(2 * torch.pi * t_norm_tensor)
             sin_t_2 = torch.sin(4 * torch.pi * t_norm_tensor)
             
-            net_input = torch.cat(
-                [y, h_t, sin_t_1, sin_t_2, h_context_sde, amr_context_sde], dim=1
-            )
+            net_input = torch.cat([y, h_t, sin_t_1, sin_t_2], dim=1)
             return neural_sde.diffusion_net(net_input)
 
         # Sample multiple SDE trajectories
@@ -758,6 +790,98 @@ def _(compare_statistics, compute_statistics, rollout):
 
     print("\nComparing distributions (moment matching):")
     compare_statistics(training_stats, sde_stats)
+    return sde_stats, training_stats
+
+
+@app.cell
+def _(
+    COLOURS,
+    finalise_plot,
+    np,
+    os,
+    output_directory,
+    plt,
+    processed_data,
+    sde_stats,
+    setup_matplotlib_style,
+    training_stats,
+):
+    """
+    Plot mean(t) and variance(t) comparison between training data and SDE predictions.
+    
+    This visualization is critical for diagnosing whether:
+    1. The SDE captures the correct mean trajectory over time
+    2. The learned diffusion matches the data variance (especially at trajectory end)
+    3. Variance "blows up" at later times (indicating distribution mismatch)
+    """
+    if sde_stats.mean.numel() > 0:
+        setup_matplotlib_style()
+        fig_stats, ax_stats = plt.subplots(1, 1, figsize=(9, 4))
+        
+        stats_time_axis = processed_data["time_grid"].detach().cpu().numpy().ravel()
+        training_mean = training_stats.mean.detach().cpu().numpy()
+        training_var = training_stats.variance.detach().cpu().numpy()
+        sde_mean = sde_stats.mean.detach().cpu().numpy()
+        sde_var = sde_stats.variance.detach().cpu().numpy()
+
+        # Plot mean ± sqrt(variance) envelopes
+        train_envelope = np.sqrt(np.maximum(training_var[:, 0], 0.0))
+        sde_envelope = np.sqrt(np.maximum(sde_var[:, 0], 0.0))
+
+        ax_stats.fill_between(
+            stats_time_axis,
+            training_mean[:, 0] - train_envelope,
+            training_mean[:, 0] + train_envelope,
+            alpha=0.25,
+            color="black",
+            label="Training mean ± sqrt(var)",
+        )
+        ax_stats.plot(
+            stats_time_axis,
+            training_mean[:, 0],
+            color="black",
+            linewidth=1.8,
+            label="Training mean",
+        )
+        
+        ax_stats.fill_between(
+            stats_time_axis,
+            sde_mean[:, 0] - sde_envelope,
+            sde_mean[:, 0] + sde_envelope,
+            alpha=0.25,
+            color=COLOURS[3],
+            label="Neural SDE mean ± sqrt(var)",
+        )
+        ax_stats.plot(
+            stats_time_axis,
+            sde_mean[:, 0],
+            color=COLOURS[3],
+            linewidth=1.8,
+            label="Neural SDE mean",
+        )
+
+        ax_stats.set_xlabel("Time [s]")
+        ax_stats.set_ylabel("AMR (standardized)")
+        ax_stats.set_title("Statistical Comparison: Training vs Neural SDE")
+        ax_stats.grid(False)
+        ax_stats.legend(bbox_to_anchor=(1.02, 1.0), loc="upper left")
+
+        for spine in ax_stats.spines.values():
+            spine.set_linewidth(1.0)
+
+        fig_stats.tight_layout()
+        finalise_plot(fig_stats, "nanorings_statistics.pdf", str(output_directory), os)
+        
+        print("\n" + "="*60)
+        print("Statistics Plot Saved")
+        print("="*60)
+        print(f"✓ Saved to: {output_directory}/nanorings_statistics.pdf")
+        print("\nCheck this plot to verify:")
+        print("  - Mean trajectories align between training and SDE")
+        print("  - Variance envelopes match (no blowup at trajectory end)")
+        print("  - Diffusion network learned appropriate stochasticity")
+    else:
+        print("\nSkipping statistics plot - no SDE rollouts generated")
     return
 
 
@@ -786,15 +910,13 @@ def _(
     traj_idx_to_plot = 0
 
     with torch.no_grad():
-        # Extract initial state and context features (standardized space)
+        # Extract initial state (standardized space)
         y0_eval = (
             processed_data["val_amr_main_norm"][traj_idx_to_plot, 0]
             .unsqueeze(0)
             .unsqueeze(0)
             .to(DEVICE)
         )
-        h_context_eval = processed_data["val_h_context"][traj_idx_to_plot].unsqueeze(0).to(DEVICE)
-        amr_context_eval = processed_data["val_amr_context"][traj_idx_to_plot].unsqueeze(0).to(DEVICE)
         val_h_main_traj = processed_data["val_h_main"][traj_idx_to_plot].to(DEVICE)
 
         # Define trajectory-specific drift function
@@ -812,9 +934,7 @@ def _(
             sin_t_1 = torch.sin(2 * torch.pi * t_norm_tensor)
             sin_t_2 = torch.sin(4 * torch.pi * t_norm_tensor)
 
-            net_input = torch.cat(
-                [y, h_t, sin_t_1, sin_t_2, h_context_eval, amr_context_eval], dim=1
-            )
+            net_input = torch.cat([y, h_t, sin_t_1, sin_t_2], dim=1)
             return trained_drift_net(net_input)
 
         # Rollout ODE trajectory

@@ -91,9 +91,11 @@ class Hyperparameters:
     critic_updates: int = 5 # Number of critic updates per generator update (Arjovsky et al., 2017)
     gradient_penalty_weight: float = 10.0 # Weight for WGAN-GP gradient penalty (Arjovsky et al., 2017)
     batch_size: int = 64
-    sde_l1_weight: float = 0.1 
+    sde_l1_weight: float = 0.1
     moment_matching_weight: float = 0.0  # Weight for statistical moment matching in generator loss
     moment_matching_enabled: bool = False  # Whether to enable statistical moment matching
+    train_ode_with_sde: bool = False  # Whether to continue training drift network during adversarial phase
+    drift_l1_weight: float = 1.0  # Weight for explicit drift-only SmoothL1 constraint during adversarial training
 
     @classmethod
     def defaults(cls) -> "Hyperparameters":

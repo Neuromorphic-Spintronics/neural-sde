@@ -29,24 +29,23 @@ def generate_output_directory_name(
     Args:
         base_path: Base directory path
         hyperparameters: Hyperparameters object
-        prefix: Optional prefix for the directory name
+        prefix: Optional prefix for the directory name (typically system name)
         
     Returns:
         Full path to the output directory
     """
-    components = []
-    if prefix:
-        components.append(prefix)
+    import hashlib
+    import json
+    from dataclasses import asdict
     
-    components.extend([
-        f"epochs-{hyperparameters.number_of_epochs}",
-        f"gan-{hyperparameters.number_of_gan_epochs}", 
-        f"batch-{hyperparameters.batch_size}",
-        f"lr-{hyperparameters.learning_rates.drift}",
-        f"mm-{hyperparameters.moment_matching_enabled}"
-    ])
+    # Create a hash of the hyperparameters for uniqueness
+    hyper_dict = asdict(hyperparameters)
+    # Sort keys for consistent hashing
+    hyper_json = json.dumps(hyper_dict, sort_keys=True, default=str)
+    hyper_hash = hashlib.sha256(hyper_json.encode("utf-8")).hexdigest()[:8]
     
-    directory_name = "_".join(components)
+    # Use prefix (system name) + hash
+    directory_name = f"{prefix}_{hyper_hash}"
     return f"{base_path}/{directory_name}"
 
 
@@ -342,6 +341,89 @@ def sample_sde_rollouts(
 
     training_subset = trajectories[subset_indices].detach().cpu()
     rollout_cpu = rollout_tensor.detach().cpu()
+
+    return RolloutBatch(
+        rollouts=[rollout_cpu[i] for i in range(rollout_cpu.size(0))],
+        rollout_tensor=rollout_cpu,
+        sample_indices=subset_indices.detach().cpu(),
+        training_subset=training_subset,
+    )
+
+
+def sample_sde_rollouts_with_inputs(
+    *,
+    model: Callable,
+    trajectories: Tensor,
+    external_inputs: Tensor,
+    time_grid: Tensor,
+    num_samples: int,
+    device: torch.device = DEVICE,
+) -> RolloutBatch:
+    """Sample rollouts from a dynamical model with external inputs.
+    
+    This version supports models that require exogenous signals (e.g., H field,
+    forcing functions, time features) by passing them through to the model.
+
+    Args:
+        model: Callable that evolves states with external inputs.
+               Expected signature: model(external_inputs, initial_state=..., initial_time=...)
+        trajectories: Reference trajectories [batch, time, state_dim].
+        external_inputs: Exogenous signals [batch, input_dim, time].
+        time_grid: Time grid for integration [num_steps].
+        num_samples: Maximum number of rollouts to generate.
+        device: Device on which sampling indices are generated.
+
+    Returns:
+        RolloutBatch containing the generated trajectories and bookkeeping.
+    """
+
+    if num_samples <= 0:
+        raise ValueError("num_samples must be a positive integer.")
+    if trajectories.dim() != 3:
+        raise ValueError(
+            "trajectories tensor must have shape (batch, time, state_dim)."
+        )
+    if external_inputs.dim() != 3:
+        raise ValueError(
+            "external_inputs tensor must have shape (batch, input_dim, time)."
+        )
+    if trajectories.shape[0] != external_inputs.shape[0]:
+        raise ValueError(
+            "trajectories and external_inputs must have the same batch size."
+        )
+    if trajectories.shape[1] != external_inputs.shape[2]:
+        raise ValueError(
+            "trajectories time dimension must match external_inputs time dimension."
+        )
+
+    dataset_size = trajectories.shape[0]
+    if dataset_size == 0:
+        raise ValueError("Cannot sample rollouts without reference trajectories.")
+
+    actual_samples = min(num_samples, dataset_size)
+    if actual_samples == dataset_size:
+        subset_indices = torch.arange(dataset_size, device=trajectories.device)
+    else:
+        subset_indices = torch.randperm(dataset_size, device=trajectories.device)[:actual_samples]
+
+    initial_state_batch = trajectories[subset_indices, 0, :]
+    external_inputs_batch = external_inputs[subset_indices]
+
+    initial_time = float(time_grid[0].item())
+
+    with torch.no_grad():
+        rollout_tensor = model(
+            external_inputs_batch,
+            initial_state=initial_state_batch,
+            initial_time=initial_time,
+        )
+
+    training_subset = trajectories[subset_indices].detach().cpu()
+    rollout_cpu = rollout_tensor.detach().cpu()
+
+    # Permute from [batch, state_dim, time] to [batch, time, state_dim]
+    if rollout_cpu.shape[1] != training_subset.shape[1]:
+        rollout_cpu = rollout_cpu.permute(0, 2, 1)
 
     return RolloutBatch(
         rollouts=[rollout_cpu[i] for i in range(rollout_cpu.size(0))],

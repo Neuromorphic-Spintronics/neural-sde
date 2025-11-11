@@ -1,0 +1,1 @@
+{"ode/checkpoint/train_loss":251.5852756500244,"_wandb":{"runtime":4},"_runtime":4.548444125,"_step":48,"ode/train_loss":241.3140869140625,"ode/val_loss":239.99951171875,"_timestamp":1.762790633706321e+09,"ode/checkpoint/epoch":1,"ode/checkpoint/val_loss":249.98171997070312}
