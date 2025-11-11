@@ -1,7 +1,17 @@
+import sys
+from pathlib import Path
+
 import torch
 
-from examples.nanorings import build_hyperparameters
-from examples.systems.parameters.nanorings import NanoringsHyperparameters
+try:
+    from examples.nanorings import build_hyperparameters
+    from examples.systems.parameters.nanorings import NanoringsHyperparameters
+except ModuleNotFoundError:  # pragma: no cover - script fallback
+    PROJECT_ROOT = Path(__file__).resolve().parents[2]
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(PROJECT_ROOT))
+    from examples.nanorings import build_hyperparameters
+    from examples.systems.parameters.nanorings import NanoringsHyperparameters
 
 
 def test_build_hyperparameters_uses_sde_learning_rates() -> None:

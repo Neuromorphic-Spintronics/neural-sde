@@ -15,7 +15,7 @@ class NanoringsHyperparameters:
     DIFFUSION_LEARNING_RATE: float = 5e-4
     GENERATOR_LEARNING_RATE: float = 1e-4  # Lower generator LR for stability
     CRITIC_LEARNING_RATE: float = 5e-4  # Higher critic LR to learn faster
-    NUMBER_OF_EPOCHS: int = 2**12
+    NUMBER_OF_EPOCHS: int = 2**10
     BATCH_SIZE: int = 128  # Larger batches for efficiency
     GAN_BATCH_SIZE: int = 128  # Larger batches reduce number of iterations
     VALIDATION_SPLIT: float = 0.2

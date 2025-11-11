@@ -3,48 +3,89 @@
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import argparse
 import logging
-import math
 import os
-from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, MutableMapping, Optional, Sequence, Tuple
+
+import matplotlib
+
+matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import torch.nn.functional as F
-import torch.optim as optim
 from torch import Tensor
+import torch.optim as optim
 from tqdm.auto import tqdm
+import math
 
-from examples.systems.parameters.nanorings import NanoringsHyperparameters
-from examples.utils.plotting import finalise_plot, setup_matplotlib_style
-from neural_dynamics.config import DEVICE
-from neural_dynamics.core.hyperparameters import (
-    Hyperparameters,
-    LearningRates,
-    NetworkArchitecture,
-)
-from neural_dynamics.core.utils import (
-    COLOURS,
-    compare_statistics,
-    compute_statistics,
-    sample_sde_rollouts,
-)
-from neural_dynamics.models.ode import NeuralODE
-from neural_dynamics.models.sde import (
-    NeuralSDE,
-    train_critic_step,
-    train_generator_step,
-)
-from neural_dynamics.utils.training_helpers import (
-    DEFAULT_METRIC_FILENAMES,
-    DEFAULT_MODEL_FILENAMES,
-    DEFAULT_TRAINING_OUTPUT_DIR,
-    ModellingConfig,
-)
-from neural_dynamics.models import sde as sde_module
+try:
+    from examples.systems.parameters.nanorings import NanoringsHyperparameters
+    from examples.utils.plotting import finalise_plot, setup_matplotlib_style
+    from neural_dynamics.config import DEVICE
+    from neural_dynamics.core.data import (
+        apply_keep_fraction,
+        normalise_dataset,
+        replicate_trajectories,
+        resample_to_target_timesteps,
+    )
+    from neural_dynamics.core.hyperparameters import (
+        Hyperparameters,
+        LearningRates,
+        NetworkArchitecture,
+    )
+    from neural_dynamics.core.utils import (
+        COLOURS,
+        compare_statistics,
+        compute_statistics,
+        sample_sde_rollouts,
+    )
+    from neural_dynamics.models.ode import NeuralODE
+    from neural_dynamics.models.sde import NeuralSDE, train_critic_step, train_generator_step
+    from neural_dynamics.models import sde as sde_module
+    from neural_dynamics.utils.training_helpers import (
+        DEFAULT_METRIC_FILENAMES,
+        DEFAULT_MODEL_FILENAMES,
+        DEFAULT_TRAINING_OUTPUT_DIR,
+        ModellingConfig,
+    )
+except ModuleNotFoundError:  # pragma: no cover - fallback when run as script
+    PROJECT_ROOT = Path(__file__).resolve().parents[1]
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(PROJECT_ROOT))
+    from examples.systems.parameters.nanorings import NanoringsHyperparameters
+    from examples.utils.plotting import finalise_plot, setup_matplotlib_style
+    from neural_dynamics.config import DEVICE
+    from neural_dynamics.core.data import (
+        apply_keep_fraction,
+        normalise_dataset,
+        replicate_trajectories,
+        resample_to_target_timesteps,
+    )
+    from neural_dynamics.core.hyperparameters import (
+        Hyperparameters,
+        LearningRates,
+        NetworkArchitecture,
+    )
+    from neural_dynamics.core.utils import (
+        COLOURS,
+        compare_statistics,
+        compute_statistics,
+        sample_sde_rollouts,
+    )
+    from neural_dynamics.models.ode import NeuralODE
+    from neural_dynamics.models.sde import NeuralSDE, train_critic_step, train_generator_step
+    from neural_dynamics.models import sde as sde_module
+    from neural_dynamics.utils.training_helpers import (
+        DEFAULT_METRIC_FILENAMES,
+        DEFAULT_MODEL_FILENAMES,
+        DEFAULT_TRAINING_OUTPUT_DIR,
+        ModellingConfig,
+    )
 
 try:  # pragma: no cover - best-effort optional dependency
     import wandb
@@ -67,6 +108,16 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         type=Path,
         default=Path("examples/data/nanorings_first_set.pt"),
         help="Path to the cached nanorings dataset (.pt file).",
+    )
+    parser.add_argument(
+        "--additional-dataset-paths",
+        type=Path,
+        nargs="*",
+        default=(),
+        help=(
+            "Optional extra dataset (.pt) files to concatenate with --dataset-path. "
+            "Use this to include multiple measurement signals."
+        ),
     )
     parser.add_argument(
         "--device",
@@ -157,6 +208,64 @@ def load_dataset(dataset_path: Path) -> Tuple[Tensor, Tensor, Tensor, Dict[str, 
     return trajectories, time_grid, h_signal, metadata
 
 
+def load_combined_dataset(
+    dataset_path: Path,
+    extra_paths: Sequence[Path],
+) -> Tuple[Tensor, Tensor, Tensor, Dict[str, Any]]:
+    """Load one or more cached datasets and concatenate them along the run axis."""
+
+    all_paths = [dataset_path, *extra_paths]
+    if not all_paths:
+        raise ValueError("At least one dataset path must be provided.")
+
+    combined_trajectories: list[Tensor] = []
+    time_grid_ref: Optional[Tensor] = None
+    h_signal_ref: Optional[Tensor] = None
+    combined_metadata: Dict[str, Any] = {}
+
+    for path in all_paths:
+        trajectories, time_grid, h_signal, metadata = load_dataset(path)
+        if time_grid_ref is None:
+            time_grid_ref = time_grid
+        else:
+            if time_grid.shape != time_grid_ref.shape or not torch.allclose(
+                time_grid, time_grid_ref
+            ):
+                raise ValueError(
+                    "All datasets must share the same time grid to be concatenated."
+                )
+        if h_signal_ref is None:
+            h_signal_ref = h_signal
+        else:
+            if h_signal.shape != h_signal_ref.shape or not torch.allclose(
+                h_signal, h_signal_ref
+            ):
+                raise ValueError(
+                    "All datasets must share the same external H-field signal."
+                )
+        combined_trajectories.append(trajectories)
+        if not combined_metadata:
+            combined_metadata = dict(metadata)
+            combined_metadata["loaded_dataset_paths"] = [path.as_posix()]
+            combined_metadata["combined_signal_indices"] = [
+                metadata.get("signal_index")
+            ]
+        else:
+            combined_metadata["loaded_dataset_paths"].append(path.as_posix())
+            combined_metadata.setdefault("combined_signal_indices", []).append(
+                metadata.get("signal_index")
+            )
+
+    assert time_grid_ref is not None  # for type checkers
+    assert h_signal_ref is not None
+
+    stacked_trajectories = torch.cat(combined_trajectories, dim=0)
+    combined_metadata["num_component_datasets"] = len(all_paths)
+    combined_metadata["num_runs_combined"] = int(stacked_trajectories.shape[0])
+
+    return stacked_trajectories, time_grid_ref, h_signal_ref, combined_metadata
+
+
 def build_hyperparameters(
     config: NanoringsHyperparameters,
     trajectories: Tensor,
@@ -215,95 +324,65 @@ def _format_run_descriptor(metadata: Mapping[str, Any], default_runs: int) -> st
     return f"{metadata.get('num_runs', default_runs)} runs"
 
 
-def plot_raw_signals(
+def plot_signal_overlays(
     trajectories: Tensor,
     time_grid: Tensor,
     h_signal: Tensor,
-    metadata: Mapping[str, Any],
     output_directory: Path,
+    *,
+    metadata: Optional[Mapping[str, Any]] = None,
+    normalised: bool = False,
 ) -> None:
+    """Plot stacked AMR trajectories alongside the shared H-field."""
+
     setup_matplotlib_style()
-    fig_raw, (ax_raw_amr, ax_raw_h) = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
+    fig, (ax_amr, ax_h) = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
 
     time_axis = time_grid.detach().cpu().numpy()
     amr_responses = trajectories.detach().cpu().numpy()[..., 0]
     h_series = h_signal.detach().cpu().numpy()
 
-    opacity = max(0.08, 3.0 / max(1, amr_responses.shape[0]))
-    for idx in tqdm(
-        range(amr_responses.shape[0]),
-        desc="Plotting raw AMR responses",
-        leave=False,
-    ):
-        ax_raw_amr.plot(
-            time_axis,
-            amr_responses[idx],
-            color="gray",
-            alpha=opacity,
-            linewidth=0.6,
-            label="AMR responses" if idx == 0 else "",
-        )
-
-    ax_raw_amr.set_ylabel("AMR response")
-    ax_raw_amr.legend(bbox_to_anchor=(1.0, 1.0), loc="upper left")
-    ax_raw_amr.grid(False)
-
-    ax_raw_h.plot(time_axis, h_series, color=COLOURS[1], linewidth=1.0, label="H-field")
-    ax_raw_h.set_xlabel("Time [s]")
-    ax_raw_h.set_ylabel("Exogenous H")
-    ax_raw_h.grid(False)
-    ax_raw_h.legend(bbox_to_anchor=(1.0, 1.0), loc="upper left")
-
-    run_descriptor = _format_run_descriptor(metadata, amr_responses.shape[0])
-    ax_raw_amr.set_title(
-        "Loaded nanorings subset: "
-        f"{run_descriptor}, "
-        f"{metadata.get('num_steps_retained', amr_responses.shape[1])} steps"
+    amr_colour = "black" if normalised else "gray"
+    amr_label = "Normalised AMR" if normalised else "AMR responses"
+    h_colour = COLOURS[2] if normalised else COLOURS[1]
+    h_label = "H-field (normalised)" if normalised else "H-field"
+    filename = (
+        "nanorings_normalised_signals.pdf"
+        if normalised
+        else "nanorings_raw_signals.pdf"
     )
 
-    fig_raw.tight_layout()
-    finalise_plot(fig_raw, "nanorings_raw_signals.pdf", str(output_directory), os)
-
-def plot_normalised_signals(
-    trajectories: Tensor,
-    time_grid: Tensor,
-    h_signal: Tensor,
-    output_directory: Path,
-) -> None:
-    setup_matplotlib_style()
-    fig_norm, (ax_norm_amr, ax_norm_h) = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
-
-    time_axis = time_grid.detach().cpu().numpy()
-    amr_responses = trajectories.detach().cpu().numpy()[..., 0]
-    h_series = h_signal.detach().cpu().numpy()
-
     opacity = max(0.08, 3.0 / max(1, amr_responses.shape[0]))
-    for idx in tqdm(
-        range(amr_responses.shape[0]),
-        desc="Plotting normalised AMR responses",
-        leave=False,
-    ):
-        ax_norm_amr.plot(
-            time_axis,
-            amr_responses[idx],
-            color="black",
-            alpha=opacity,
-            linewidth=0.6,
-            label="Normalised AMR" if idx == 0 else "",
+    lines = ax_amr.plot(
+        time_axis,
+        amr_responses.T,
+        color=amr_colour,
+        alpha=opacity,
+        linewidth=0.6,
+    )
+    if lines:
+        lines[0].set_label(amr_label)
+
+    ax_amr.set_ylabel("AMR response" if not normalised else "AMR (normalised)")
+    ax_amr.legend(bbox_to_anchor=(1.0, 1.0), loc="upper left")
+    ax_amr.grid(False)
+
+    ax_h.plot(time_axis, h_series, color=h_colour, linewidth=1.0, label=h_label)
+    ax_h.set_xlabel("Time [s]")
+    ax_h.set_ylabel("Exogenous H" if not normalised else "H (normalised)")
+    ax_h.grid(False)
+    ax_h.legend(bbox_to_anchor=(1.0, 1.0), loc="upper left")
+
+    if metadata is not None and not normalised:
+        run_descriptor = _format_run_descriptor(metadata, amr_responses.shape[0])
+        ax_amr.set_title(
+            "Loaded nanorings subset: "
+            f"{run_descriptor}, "
+            f"{metadata.get('num_steps_retained', amr_responses.shape[1])} steps"
         )
 
-    ax_norm_amr.set_ylabel("AMR (normalised)")
-    ax_norm_amr.legend(bbox_to_anchor=(1.0, 1.0), loc="upper left")
-    ax_norm_amr.grid(False)
-
-    ax_norm_h.plot(time_axis, h_series, color=COLOURS[2], linewidth=1.0, label="H-field (normalised)")
-    ax_norm_h.set_xlabel("Time [s]")
-    ax_norm_h.set_ylabel("H (normalised)")
-    ax_norm_h.grid(False)
-    ax_norm_h.legend(bbox_to_anchor=(1.0, 1.0), loc="upper left")
-
-    fig_norm.tight_layout()
-    finalise_plot(fig_norm, "nanorings_normalised_signals.pdf", str(output_directory), os)
+    fig.tight_layout()
+    finalise_plot(fig, filename, str(output_directory), os)
 
 
 def plot_ode_preview(
@@ -371,6 +450,7 @@ class StatisticsCheckpointManager:
 
     def clear(self) -> None:
         """Reset stored training context."""
+
         self.training_trajectories = None
         self.time_grid_device = None
         self.time_grid_cpu = None
@@ -378,6 +458,7 @@ class StatisticsCheckpointManager:
 
     def update_training_context(self, trajectories: Tensor, time_grid: Tensor) -> None:
         """Update the training trajectories and time grid used for checkpoints."""
+
         self.training_trajectories = trajectories.detach()
         self.time_grid_device = time_grid.detach()
         self.time_grid_cpu = time_grid.detach().cpu()
@@ -392,7 +473,11 @@ class StatisticsCheckpointManager:
     ) -> None:
         """Save a statistics snapshot if the interval condition holds."""
 
-        if self.training_trajectories is None or self.time_grid_device is None or self.time_grid_cpu is None:
+        if (
+            self.training_trajectories is None
+            or self.time_grid_device is None
+            or self.time_grid_cpu is None
+        ):
             return
 
         if (epoch + 1) % self.interval != 0:
@@ -424,8 +509,7 @@ class StatisticsCheckpointManager:
                 device=self.device,
             )
         finally:
-            if previous_mode:
-                model.train()  # type: ignore
+            super(NeuralSDE, model).train(previous_mode)
 
         sde_stats, training_stats = compute_and_compare_statistics(rollout)
         suffix = f"epoch-{epoch + 1:04d}"
@@ -479,13 +563,11 @@ def _fit_neural_sde_gan_with_checkpoints(
         return tensor
 
     torch.manual_seed(random_seed)
-    
-    # Configure drift network training mode based on hyperparameter
+
     if hyperparameters.train_ode_with_sde:
         drift_network.train()
         generator_params = list(drift_network.parameters()) + list(diffusion_network.parameters())
     else:
-        # Freeze the drift network by setting it to evaluation mode
         drift_network.eval()
         generator_params = diffusion_network.parameters()
 
@@ -498,21 +580,19 @@ def _fit_neural_sde_gan_with_checkpoints(
 
     generator_losses: List[float] = []
     critic_losses: List[float] = []
-    drift_losses: List[float] = []  # Track drift losses when training jointly
+    drift_losses: List[float] = []
 
     stochastic_trajectories = stochastic_trajectories.to(DEVICE)
     time_grid = time_grid.to(DEVICE)
-    
-    # Get critic window size and trajectory length for random window sampling
+
     critic_window = critic_network.trajectory_length
     full_trajectory_length = stochastic_trajectories.shape[1]
-    
+
     if full_trajectory_length < critic_window:
         raise ValueError(
-            f"Trajectory length {full_trajectory_length} is shorter than "
-            f"critic window {critic_window}"
+            f"Trajectory length {full_trajectory_length} is shorter than critic window {critic_window}"
         )
-    
+
     max_window_start = full_trajectory_length - critic_window
     num_batches = math.ceil(
         stochastic_trajectories.shape[0] / hyperparameters.batch_size
@@ -530,7 +610,7 @@ def _fit_neural_sde_gan_with_checkpoints(
         for epoch in pbar:
             epoch_critic_losses: List[float] = []
             epoch_generator_losses: List[float] = []
-            epoch_drift_losses: List[float] = []  # Track drift-only loss when joint training
+            epoch_drift_losses: List[float] = []
 
             for batch_idx in range(num_batches):
                 start_idx = batch_idx * hyperparameters.batch_size
@@ -542,15 +622,13 @@ def _fit_neural_sde_gan_with_checkpoints(
                 if start_idx >= end_idx:
                     continue
 
-                # Sample a random window position for this batch
                 window_start = torch.randint(0, max_window_start + 1, (1,)).item()
                 window_end = window_start + critic_window
-                
-                # Extract windowed segments directly (data already on DEVICE)
+
                 real_trajectories = stochastic_trajectories[start_idx:end_idx, window_start:window_end, :].contiguous()
                 window_time_grid = time_grid[window_start:window_end]
                 initial_states = real_trajectories[:, 0, :]
-                
+
                 fake_trajectories = sde(initial_states, window_time_grid)
                 real_trajectories = _ensure_finite(real_trajectories, "real trajectories")
                 fake_trajectories = _ensure_finite(fake_trajectories, "fake trajectories")
@@ -564,164 +642,28 @@ def _fit_neural_sde_gan_with_checkpoints(
                         fake_for_critic,
                         hyperparameters.gradient_penalty_weight,
                     )
-                    epoch_critic_losses.append(critic_loss)
+                    epoch_critic_losses.append(float(critic_loss))
 
-                # Compute drift-only loss WITH gradients if training drift jointly
+                drift_l1_weight = getattr(hyperparameters, "drift_l1_weight", 0.0)
                 drift_only_loss_tensor = None
-                drift_l1_weight = getattr(hyperparameters, 'drift_l1_weight', 0.0)
-                if hyperparameters.train_ode_with_sde and drift_l1_weight > 0:
-                    # Compute deterministic drift-only predictions WITH gradients
-                    # This adds an explicit SmoothL1 constraint to keep drift network accurate
-                    drift_predictions = []
-                    current_state = initial_states
-                    for step_idx in range(1, len(window_time_grid)):
-                        dt = float(window_time_grid[step_idx] - window_time_grid[step_idx - 1])
-                        t = float(window_time_grid[step_idx - 1])
-                        time_tensor = torch.full((current_state.shape[0], 1), t, device=DEVICE, dtype=current_state.dtype)
-                        drift = drift_network.compute_drift(current_state, time_tensor, external_inputs=None)
-                        next_state = current_state + drift * dt
-                        drift_predictions.append(next_state)
-                        current_state = next_state
-                    drift_predictions = torch.stack(drift_predictions, dim=1).contiguous()
-                    
-                    # Compute SmoothL1 loss (WITH gradients for backprop)
-                    drift_only_loss_tensor = F.smooth_l1_loss(
-                        drift_predictions, real_trajectories[:, 1:, :].contiguous()
-                    )
-                    
-                    # Debug: check if loss is being computed correctly
-                    if epoch == 0 and batch_idx == 0:
-                        print("\n[DEBUG] First batch of SDE training:")
-                        print(f"  drift_predictions shape: {drift_predictions.shape}")
-                        print(f"  real_trajectories[:, 1:, :] shape: {real_trajectories[:, 1:, :].shape}")
-                        print(f"  drift_only_loss_tensor: {drift_only_loss_tensor.item():.6f}")
-                        print(f"  drift_l1_weight: {drift_l1_weight}")
-                        print(f"  drift_predictions mean: {drift_predictions.mean().item():.6f}, std: {drift_predictions.std().item():.6f}")
-                        print(f"  real_trajectories mean: {real_trajectories[:, 1:, :].mean().item():.6f}, std: {real_trajectories[:, 1:, :].std().item():.6f}")
-                        print(f"  drift_predictions.requires_grad: {drift_predictions.requires_grad}")
-                        print(f"  drift_only_loss_tensor.requires_grad: {drift_only_loss_tensor.requires_grad}")
-                        print(f"  drift_network.training: {drift_network.training}")
 
-                # Store initial drift network parameters for gradient verification
-                if epoch == 0 and batch_idx == 0:
-                    first_param_before = next(drift_network.parameters()).clone().detach()
-                
                 generator_loss, loss_components = train_generator_step(
-                    generator_optimiser,
-                    critic_network,
-                    fake_trajectories,
-                    real_trajectories,
-                    hyperparameters.sde_l1_weight,
-                    moment_matching_weight=getattr(
-                        hyperparameters, "moment_matching_weight", 0.0
-                    ),
-                    moment_matching_enabled=getattr(
-                        hyperparameters, "moment_matching_enabled", False
-                    ),
+                    generator_optimiser=generator_optimiser,
+                    critic_network=critic_network,
+                    fake_trajectories=fake_trajectories,
+                    real_trajectories=real_trajectories,
+                    sde_l1_weight=hyperparameters.sde_l1_weight,
+                    moment_matching_weight=getattr(hyperparameters, "moment_matching_weight", 0.0),
+                    moment_matching_enabled=getattr(hyperparameters, "moment_matching_enabled", False),
                     diffusion_network=diffusion_network,
                     drift_only_loss=drift_only_loss_tensor,
                     drift_l1_weight=drift_l1_weight,
                 )
-                epoch_generator_losses.append(generator_loss)
+                epoch_generator_losses.append(float(generator_loss))
 
-                # Print loss component breakdown for first few epochs
-                if epoch < 3 and batch_idx == 0:
-                    print(f"\n{'='*80}")
-                    print(f"NANORINGS WRAPPER - EPOCH {epoch} BATCH {batch_idx}")
-                    print(f"{'='*80}")
-                    print(f"  Adversarial:     {loss_components['adversarial']:>10.6f}")
-                    print(f"  SDE L1 (×{hyperparameters.sde_l1_weight}):    {loss_components['sde_l1_weighted']:>10.6f}")
-                    print(f"  Drift (×{drift_l1_weight}):     {loss_components['drift_only_weighted']:>10.6f}")
-                    print(f"  TOTAL:           {generator_loss:>10.6f}")
-                    print(f"{'='*80}\n")
-                
-                # Verify drift network gradients were computed and parameters updated
-                if epoch == 0 and batch_idx == 0:
-                    first_param = next(drift_network.parameters())
-                    first_param_after = first_param.clone().detach()
-                    param_changed = not torch.allclose(first_param_before, first_param_after, atol=1e-10)
-                    has_grad = first_param.grad is not None
-                    grad_norm = first_param.grad.norm().item() if has_grad else 0.0
-                    print("  [GRADIENT CHECK]")
-                    print(f"    Drift network param has gradient: {has_grad}")
-                    print(f"    Gradient norm: {grad_norm:.6f}")
-                    print(f"    Parameters changed after optimizer step: {param_changed}")
-                    print(f"    Parameter change magnitude: {(first_param_after - first_param_before).abs().max().item():.6e}")
-                
-                # Track drift-only loss for logging (reuse computed value)
-                if hyperparameters.train_ode_with_sde and drift_only_loss_tensor is not None:
-                    epoch_drift_losses.append(drift_only_loss_tensor.item())
-
-            generator_losses.append(
-                sum(epoch_generator_losses) / len(epoch_generator_losses)
-                if epoch_generator_losses
-                else 0.0
-            )
-            critic_losses.append(
-                sum(epoch_critic_losses) / len(epoch_critic_losses)
-                if epoch_critic_losses
-                else 0.0
-            )
-            
-            # Track drift loss for plotting continuity when training jointly
-            if hyperparameters.train_ode_with_sde and epoch_drift_losses:
-                drift_losses.append(sum(epoch_drift_losses) / len(epoch_drift_losses))
-            else:
-                drift_losses.append(0.0)
-
-            # Log to W&B if available (offset by actual ODE epochs trained)
-            if wandb_run is not None:
-                # Use actual ODE epochs if provided, otherwise fall back to configured value
-                ode_epochs = actual_ode_epochs if actual_ode_epochs is not None else getattr(hyperparameters, 'number_of_epochs', 0)
-                step = ode_epochs + epoch
-                log_data = {
-                    "sde/generator_loss": generator_losses[-1],
-                    "sde/critic_loss": critic_losses[-1]
-                }
-                
-                # Log drift loss as continuation of ODE training (same metric name for continuity)
-                if drift_losses[-1] > 0:  # Only log if drift loss was computed
-                    log_data["ode/train_loss"] = drift_losses[-1]  # Continue the ODE plot
-                    log_data["sde/drift_loss"] = drift_losses[-1]  # Also keep separate metric
-                
-                # Debug: print first few epochs to understand what's happening
-                if epoch < 5:
-                    print(f"\n[DEBUG] Epoch {epoch}: drift_loss={drift_losses[-1]:.4f}, generator_loss={generator_losses[-1]:.4f}, critic_loss={critic_losses[-1]:.4f}")
-                
-                wandb_run.log(log_data, step=step)
-                
-                # Log detailed checkpoint every 100 epochs
-                if (epoch + 1) % 100 == 0 or epoch == 0:
-                    checkpoint_data = {
-                        "sde/checkpoint/epoch": epoch + 1,
-                        "sde/checkpoint/generator_loss": generator_losses[-1],
-                        "sde/checkpoint/critic_loss": critic_losses[-1],
-                    }
-                    if drift_losses[-1] > 0:
-                        checkpoint_data["sde/checkpoint/drift_loss"] = drift_losses[-1]
-                    
-                    # Add statistics about batch losses if available
-                    if epoch_generator_losses:
-                        checkpoint_data["sde/checkpoint/generator_loss_mean"] = sum(epoch_generator_losses) / len(epoch_generator_losses)
-                        checkpoint_data["sde/checkpoint/generator_loss_std"] = (
-                            sum((x - checkpoint_data["sde/checkpoint/generator_loss_mean"]) ** 2 for x in epoch_generator_losses) / len(epoch_generator_losses)
-                        ) ** 0.5 if len(epoch_generator_losses) > 1 else 0.0
-                    if epoch_critic_losses:
-                        checkpoint_data["sde/checkpoint/critic_loss_mean"] = sum(epoch_critic_losses) / len(epoch_critic_losses)
-                        checkpoint_data["sde/checkpoint/critic_loss_std"] = (
-                            sum((x - checkpoint_data["sde/checkpoint/critic_loss_mean"]) ** 2 for x in epoch_critic_losses) / len(epoch_critic_losses)
-                        ) ** 0.5 if len(epoch_critic_losses) > 1 else 0.0
-                    if epoch_drift_losses:
-                        checkpoint_data["sde/checkpoint/drift_loss_mean"] = sum(epoch_drift_losses) / len(epoch_drift_losses)
-                        checkpoint_data["sde/checkpoint/drift_loss_std"] = (
-                            sum((x - checkpoint_data["sde/checkpoint/drift_loss_mean"]) ** 2 for x in epoch_drift_losses) / len(epoch_drift_losses)
-                        ) ** 0.5 if len(epoch_drift_losses) > 1 else 0.0
-                    
-                    wandb_run.log(checkpoint_data, step=step)
-
-            pbar.set_postfix(
-                {"Gen Loss": generator_losses[-1], "Critic Loss": critic_losses[-1]}
-            )
+            generator_losses.append(float(np.mean(epoch_generator_losses)) if epoch_generator_losses else 0.0)
+            critic_losses.append(float(np.mean(epoch_critic_losses)) if epoch_critic_losses else 0.0)
+            drift_losses.append(float(np.mean(epoch_drift_losses)) if epoch_drift_losses else 0.0)
 
             if manager is not None:
                 manager.maybe_checkpoint(
@@ -740,7 +682,7 @@ def _install_sde_checkpointing(manager: Optional[StatisticsCheckpointManager]) -
     global _ORIGINAL_FIT_NEURAL_SDE_GAN, _STATS_CHECKPOINT_MANAGER
 
     if _ORIGINAL_FIT_NEURAL_SDE_GAN is None:
-        _ORIGINAL_FIT_NEURAL_SDE_GAN = sde_module.fit_neural_sde_gan
+        _ORIGINAL_FIT_NEURAL_SDE_GAN = sde_module.fit_neural_sde_gan  # type: ignore
         sde_module.fit_neural_sde_gan = _fit_neural_sde_gan_with_checkpoints  # type: ignore
 
     _STATS_CHECKPOINT_MANAGER = manager
@@ -754,177 +696,6 @@ def _restore_sde_checkpointing() -> None:
         sde_module.fit_neural_sde_gan = _ORIGINAL_FIT_NEURAL_SDE_GAN  # type: ignore
         _ORIGINAL_FIT_NEURAL_SDE_GAN = None
     _STATS_CHECKPOINT_MANAGER = None
-
-
-def apply_keep_fraction(
-    trajectories: Tensor,
-    time_grid: Tensor,
-    h_signal: Tensor,
-    fraction: float,
-) -> Tuple[Tensor, Tensor, Tensor, int, Sequence[int]]:
-    """Convert full trajectories into fixed-length windows based on keep_fraction.
-
-    The original nanorings dataset contains long trajectories for each H-field
-    sweep. When ``fraction`` is small (e.g. 0.05), training on a single cropped
-    trajectory wastes the remaining repetitions. This helper slices every run
-    into non-overlapping windows of length ``round(fraction * total_steps)`` and
-    includes a tail window so the final portion of each run is still seen.
-
-    Args:
-        trajectories: Tensor ``[num_runs, total_steps, state_dim]``.
-        time_grid: Shared time grid ``[total_steps]``.
-        h_signal: Shared exogenous forcing ``[total_steps]``.
-        fraction: Fraction of a trajectory to keep per window, ``(0, 1]``.
-
-    Returns:
-        windowed_trajectories: Tensor ``[num_windows, keep_steps, state_dim]``.
-        window_time_grid: Time grid aligned with each window.
-        representative_h_signal: The H signal aligned with ``window_time_grid``.
-        keep_steps: Number of steps retained per window.
-        windows_per_run: Count of windows generated from each original run.
-    """
-
-    if not 0.0 < fraction <= 1.0:
-        raise ValueError("keep_fraction must lie in (0, 1].")
-
-    total_steps = trajectories.shape[1]
-    if trajectories.ndim != 3:
-        raise ValueError("trajectories must have shape [num_runs, total_steps, state_dim].")
-    if h_signal.ndim != 1 or h_signal.shape[0] != total_steps:
-        raise ValueError("h_signal must have shape [total_steps].")
-    keep_steps = max(2, int(round(total_steps * fraction)))
-    keep_steps = min(total_steps, keep_steps)
-
-    starts: list[int]
-    starts = list(range(0, total_steps - keep_steps + 1, keep_steps))
-    tail_start = total_steps - keep_steps
-    if tail_start >= 0 and (not starts or starts[-1] != tail_start):
-        starts.append(tail_start)
-
-    window_list: list[Tensor] = []
-    windows_per_run: list[int] = []
-    for run_idx in range(trajectories.shape[0]):
-        run = trajectories[run_idx]
-        run_windows = []
-        for start in starts:
-            end = start + keep_steps
-            if end > total_steps:
-                continue
-            run_windows.append(run[start:end].clone())
-        if not run_windows:
-            raise ValueError(
-                f"Could not create windows for run {run_idx}; "
-                f"keep_steps={keep_steps}, total_steps={total_steps}."
-            )
-        window_list.extend(run_windows)
-        windows_per_run.append(len(run_windows))
-
-    windowed_trajectories = torch.stack(window_list, dim=0)
-
-    base_time = time_grid[:keep_steps].clone()
-    if base_time.numel() > 0:
-        base_time = base_time - base_time[0].item()
-
-    representative_h = windowed_trajectories[0, :, 1].clone()
-    if representative_h.numel() != keep_steps:
-        raise ValueError("Representative H signal length mismatch after windowing.")
-
-    return windowed_trajectories, base_time, representative_h, keep_steps, windows_per_run
-
-
-def resample_to_target_timesteps(
-    trajectories: Tensor,
-    time_grid: Tensor,
-    h_signal: Tensor,
-    target_steps: int,
-) -> Tuple[Tensor, Tensor, Tensor]:
-    """Resample trajectories to a fixed number of timesteps using linear interpolation."""
-
-    if target_steps <= 0:
-        raise ValueError("target_steps must be a positive integer.")
-
-    current_steps = trajectories.shape[1]
-    if current_steps == target_steps or current_steps <= 1:
-        return trajectories, time_grid, h_signal
-
-    start_time = float(time_grid[0].item())
-    end_time = float(time_grid[-1].item())
-    resampled_time = torch.linspace(
-        start_time,
-        end_time,
-        target_steps,
-        dtype=time_grid.dtype,
-        device=time_grid.device,
-    )
-
-    # Interpolate trajectories: reshape to [batch, channels, time] for F.interpolate.
-    traj_channels_first = trajectories.permute(0, 2, 1)
-    resampled_traj = F.interpolate(
-        traj_channels_first,
-        size=target_steps,
-        mode="linear",
-        align_corners=False,
-    ).permute(0, 2, 1).contiguous()
-
-    # H signal interpolation (shape [time]) -> treat as batch=1, channel=1
-    h_signal_batch = h_signal.view(1, 1, -1)
-    resampled_h = F.interpolate(
-        h_signal_batch,
-        size=target_steps,
-        mode="linear",
-        align_corners=False,
-    ).view(-1).contiguous()
-
-    return resampled_traj, resampled_time, resampled_h
-
-
-def replicate_trajectories(
-    trajectories: Tensor,
-    factor: int,
-) -> Tensor:
-    """Replicate trajectories to augment dataset size."""
-    if factor < 1:
-        raise ValueError("replication_factor must be a positive integer.")
-    if factor == 1:
-        return trajectories
-    return trajectories.repeat((factor, 1, 1))
-
-
-def normalise_dataset(
-    trajectories: Tensor,
-    h_signal: Tensor,
-    *,
-    enabled: bool,
-    eps: float = 1e-8,
-) -> Tuple[Tensor, Tensor, Optional[Dict[str, float]]]:
-    if not enabled:
-        return trajectories, h_signal, None
-
-    trajectories = trajectories.clone()
-    h_signal = h_signal.clone()
-
-    amr = trajectories[..., 0]
-    h = trajectories[..., 1]
-
-    amr_centered = amr - amr.mean(dim=1, keepdim=True)
-    h_centered = h - h.mean(dim=1, keepdim=True)
-
-    amr_std = amr_centered.std(unbiased=False).clamp_min(eps)
-    h_std = h_centered.std(unbiased=False).clamp_min(eps)
-
-    trajectories[..., 0] = amr_centered / amr_std
-    trajectories[..., 1] = h_centered / h_std
-
-    h_signal_centered = h_signal - h_signal.mean()
-    h_signal = h_signal_centered / h_std
-
-    stats = {
-        "amr_mean": float(amr_centered.mean().item()),
-        "amr_std": float(amr_std.item()),
-        "h_mean": float(h_signal_centered.mean().item()),
-        "h_std": float(h_std.item()),
-    }
-    return trajectories, h_signal, stats
 
 
 def train_or_load_models(
@@ -976,9 +747,7 @@ def train_or_load_models(
         LOGGER.info("Loaded existing checkpoints from %s.", output_directory)
         if stats_checkpoint_manager is not None:
             stats_checkpoint_manager.clear()
-            LOGGER.info(
-                "Statistics checkpointing skipped (existing checkpoints loaded)."
-            )
+            LOGGER.info("Statistics checkpointing skipped (existing checkpoints loaded).")
     else:
         LOGGER.info("Training neural ODE...")
         if wandb is not None and enable_wandb:
@@ -1016,13 +785,6 @@ def train_or_load_models(
         val_losses = list(neural_ode.validation_losses)
 
         # Plot ODE preview immediately after training
-        ode_prediction = predict_with_neural_ode(neural_ode, trajectories_device, time_grid_device, device)
-        plot_ode_preview(trajectories_device, time_grid_device, ode_prediction, output_directory)
-        LOGGER.info(
-            "Saved Neural ODE preview plot to %s",
-            (output_directory / "nanorings_neural_ode_preview.pdf").as_posix(),
-        )
-
         LOGGER.info("Training neural SDE...")
         # Use separate batch size for GAN training if provided
         sde_hparams = sde_hyperparameters if sde_hyperparameters is not None else hyperparameters
@@ -1296,15 +1058,16 @@ def plot_model_comparison(
     ode_series = ode_prediction.detach().cpu().numpy()[:, 0]
 
     n_show = min(50, amr_training.shape[0])
-    for idx in range(n_show):
-        ax_amr.plot(
+    if n_show:
+        train_lines = ax_amr.plot(
             time_axis,
-            amr_training[idx],
+            amr_training[:n_show].T,
             color="gray",
             alpha=0.2,
             linewidth=0.6,
-            label="Training" if idx == 0 else "",
         )
+        if train_lines:
+            train_lines[0].set_label("Training")
 
     ax_amr.plot(
         time_axis,
@@ -1346,19 +1109,22 @@ def plot_model_comparison(
 
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
-    import sys
-
-    PROJECT_ROOT = Path(__file__).resolve().parents[1]
-    if str(PROJECT_ROOT) not in sys.path:
-        sys.path.insert(0, str(PROJECT_ROOT))
-
     args = parse_args(argv)
     _configure_logging()
 
     device = torch.device(args.device) if args.device is not None else DEVICE
     LOGGER.info("Using device: %s", device)
 
-    trajectories, time_grid, h_signal, metadata = load_dataset(args.dataset_path)
+    trajectories, time_grid, h_signal, metadata = load_combined_dataset(
+        args.dataset_path,
+        args.additional_dataset_paths,
+    )
+    if args.additional_dataset_paths:
+        LOGGER.info(
+            "Loaded %d dataset files -> %d runs.",
+            1 + len(args.additional_dataset_paths),
+            trajectories.shape[0],
+        )
     original_steps = trajectories.shape[1]
     original_duration = (
         float(time_grid[-1] - time_grid[0]) if time_grid.numel() > 1 else 0.0
@@ -1366,15 +1132,14 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     (
         trajectories,
         time_grid,
-        h_signal,
         kept_steps,
         windows_per_run,
     ) = apply_keep_fraction(
         trajectories,
         time_grid,
-        h_signal,
         args.keep_fraction,
     )
+    h_signal = trajectories[0, :, 1].clone()
     total_windows = trajectories.shape[0]
     total_runs = len(windows_per_run)
     total_samples = total_windows * kept_steps
@@ -1419,13 +1184,13 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         )
 
     if trajectories.shape[1] != TARGET_TIMESTEPS:
-        trajectories, time_grid, h_signal = resample_to_target_timesteps(
+        trajectories, time_grid = resample_to_target_timesteps(
             trajectories,
             time_grid,
-            h_signal,
             TARGET_TIMESTEPS,
         )
         kept_steps = trajectories.shape[1]
+        h_signal = trajectories[0, :, 1].clone()
         metadata["num_steps_retained"] = kept_steps
         metadata["resampled_to_timesteps"] = TARGET_TIMESTEPS
         LOGGER.info("Resampled trajectories to %d timesteps for training.", kept_steps)
@@ -1444,7 +1209,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             "Replicated trajectories %d× -> total windows: %d (%d samples).",
             args.replication_factor,
             trajectories.shape[0],
-            metadata["total_samples"],
+            trajectories.shape[0] * trajectories.shape[1],
         )
     metadata["num_runs"] = trajectories.shape[0]
     metadata["num_windows"] = trajectories.shape[0]
@@ -1498,20 +1263,29 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             max_snapshots=max_snapshots,
         )
         LOGGER.info(
-            "Intermediate statistics checkpointing enabled every %d epoch(s) "
-            "(limit=%s, samples=%d).",
+            "Intermediate statistics checkpointing enabled every %d epoch(s) (limit=%s, samples=%d).",
             args.stats_checkpoint_interval,
             "∞" if max_snapshots is None else str(max_snapshots),
             args.stats_checkpoint_samples,
         )
 
-    plot_raw_signals(trajectories, time_grid, h_signal, metadata, output_directory)
-    LOGGER.info(
-        "Saved raw signal plot to %s",
-        (output_directory / "nanorings_raw_signals.pdf").as_posix(),
+    plot_is_normalised = normalisation_stats is not None
+    plot_signal_overlays(
+        trajectories,
+        time_grid,
+        h_signal,
+        output_directory,
+        normalised=plot_is_normalised,
     )
-    if normalisation_stats is not None:
-        plot_normalised_signals(trajectories, time_grid, h_signal, output_directory)
+    plot_filename = (
+        "nanorings_normalised_signals.pdf"
+        if plot_is_normalised
+        else "nanorings_raw_signals.pdf"
+    )
+    LOGGER.info(
+        "Saved training signal plot to %s",
+        (output_directory / plot_filename).as_posix(),
+    )
 
     neural_ode, neural_sde, train_losses, val_losses, generator_losses, critic_losses, drift_losses_sde = (
         train_or_load_models(
@@ -1544,6 +1318,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         sample_count=modelling_config.sde_sample_count,
         device=device,
     )
+
     sde_stats, training_stats = compute_and_compare_statistics(rollout)
 
     plot_statistics(sde_stats, training_stats, time_grid, output_directory)
