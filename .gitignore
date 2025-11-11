@@ -228,4 +228,3 @@ Documentation/main.tex
 nr-experiment.py
 # cleaned_energy_data
 wandb/
-examples/output/
