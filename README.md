@@ -13,16 +13,16 @@
 
 ## Examples
 
-2. **Run Duffing oscillator notebook (marimo)**:
+2. **Run Duffing oscillator**:
 
    To edit/live-run:
 
    ```bash
-   uv run marimo edit examples/duffing_oscillator_notebook.py
+   uv run examples/duffing_oscillator_notebook.py
    ```
 
-3. **Run Nanorings digital twin notebook (marimo)**:
+3. **Run Nanorings digital twin**:
 
    ```bash
-   uv run marimo edit examples/nanorings_digital_twin.py
+   uv run examples/nanorings.py
    ```

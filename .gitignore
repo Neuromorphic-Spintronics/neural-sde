@@ -2,7 +2,7 @@ london_smart_meter.py
 
 .vscode/
 
-data/
+data/nanorings/raw/
 wandb/
 
 # /data/
