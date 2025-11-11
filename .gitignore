@@ -2,6 +2,7 @@ london_smart_meter.py
 
 .vscode/
 
+data/
 wandb/
 
 # /data/
