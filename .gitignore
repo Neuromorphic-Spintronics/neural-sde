@@ -2,10 +2,12 @@ london_smart_meter.py
 
 .vscode/
 
-/data/
+# /data/
 literature/
 notes/
 
+data/nanorings/raw/
+data/smart-meter/
 
 __pycache__/
 .DS_Store

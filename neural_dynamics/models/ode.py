@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Any
 
 import torch
 from torch import Tensor, nn
@@ -16,7 +16,69 @@ from neural_dynamics.training.base import train_with_validation
 
 
 class NeuralODE(nn.Module):
-    """Neural ODE model backed by a trained drift network."""
+    r"""
+    Neural Ordinary Differential Equation (Neural ODE) model.
+
+    This class represents a continuous-time dynamical system defined by a
+    learnable drift function ``dx/dt = f_\theta(x, t)``, parameterised by a neural
+    network (`DriftNet`). The dynamics are simulated using a numerical
+    integrator (default: 4th-order Runge--Kutta).
+
+    The model can be trained directly from supervised trajectory data, where
+    the network learns to approximate the derivative of the state with respect
+    to time.
+
+    Parameters
+    ----------
+    drift_net : DriftNet
+        Neural network modeling the system drift function ``f_\theta(x, t)``.
+    hyperparameters : Hyperparameters
+        Configuration object containing model and training parameters.
+    time_grid : torch.Tensor, optional
+        Time grid used for training or evaluation, shape ``[T]``.
+    training_losses : list of float, optional
+        Recorded training loss values per epoch.
+    validation_losses : list of float, optional
+        Recorded validation loss values per epoch.
+
+    Attributes
+    ----------
+    drift_net : DriftNet
+        Trained drift network.
+    hyperparameters : Hyperparameters
+        Hyperparameter configuration.
+    time_grid : torch.Tensor
+        Discrete time grid associated with training data.
+    training_losses : list[float]
+        Historical training loss values.
+    validation_losses : list[float]
+        Historical validation loss values.
+    device : torch.device
+        Device on which the model is stored (CPU or GPU).
+
+    Methods
+    -------
+    forward(initial_state, t_span)
+        Integrate the system from an initial state over a given time span.
+    drift_function(t, state)
+        Compute the instantaneous drift at time ``t``.
+    train(...)
+        Class method to train a drift network and return a NeuralODE instance.
+
+    Example
+    -------
+    >>> neural_ode = NeuralODE.train(
+    ...     hyperparameters=hp,
+    ...     trajectories=training_data,
+    ...     time_grid=torch.linspace(0, 10, 101),
+    ...     device=torch.device("cuda"),
+    ... )
+    >>> x0 = torch.randn(1, hp.state_dimension)
+    >>> t_span = torch.linspace(0, 10, 101)
+    >>> predicted = neural_ode(x0, t_span)
+    >>> predicted.shape
+    torch.Size([1, 101, hp.state_dimension])
+    """
 
     drift_net: DriftNet
     hyperparameters: Hyperparameters
@@ -69,8 +131,22 @@ class NeuralODE(nn.Module):
         device: torch.device,
         validation_split: float = 0.2,
         early_stopping_patience: Optional[int] = None,
+        wandb_run: Optional[Any] = None,
     ) -> "NeuralODE":
-        """Train the drift network using batched trajectory supervision."""
+        """Train the drift network using batched trajectory supervision.
+
+        Args:
+            hyperparameters: Training hyperparameters
+            trajectories: Training trajectories [batch, time, state]
+            time_grid: Time grid for trajectories
+            device: Device for training
+            validation_split: Fraction of data to use for validation
+            early_stopping_patience: Early stopping patience (None uses hyperparameter default)
+            wandb_run: Optional W&B run object for logging training progress
+
+        Returns:
+            Trained NeuralODE instance
+        """
 
         if trajectories.ndim != 3:
             raise ValueError("trajectories must have shape [batch, time, state]")
@@ -139,6 +215,7 @@ class NeuralODE(nn.Module):
             early_stopping_patience=early_stop,
             device=device,
             batch_preparation_fn=batch_preparation_fn,
+            wandb_run=wandb_run,
         )
 
         trained_drift.eval()

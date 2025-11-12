@@ -1,0 +1,36 @@
+{
+  "os": "macOS-26.1-arm64-arm-64bit-Mach-O",
+  "python": "CPython 3.13.3",
+  "startedAt": "2025-11-12T11:54:35.757878Z",
+  "program": "/Users/jack/Library/Mobile Documents/com~apple~CloudDocs/Research/neural-sde/examples/nanorings.py",
+  "codePath": "examples/nanorings.py",
+  "codePathLocal": "examples/nanorings.py",
+  "git": {
+    "remote": "git@github.com:Neuromorphic-Spintronics/neural-sde.git",
+    "commit": "a6b7f9ebf9560ec0d6d69b594c61be55431311cf"
+  },
+  "email": "me@jackg.co",
+  "root": "/Users/jack/Library/Mobile Documents/com~apple~CloudDocs/Research/neural-sde",
+  "host": "eip-autoe89f80cce21c.ddns.shef.ac.uk",
+  "executable": "/Users/jack/Library/Mobile Documents/com~apple~CloudDocs/Research/neural-sde/.venv/bin/python3",
+  "cpu_count": 28,
+  "cpu_count_logical": 28,
+  "disk": {
+    "/": {
+      "total": "1995218165760",
+      "used": "713777475584"
+    }
+  },
+  "memory": {
+    "total": "103079215104"
+  },
+  "apple": {
+    "name": "Apple M3 Ultra",
+    "ecpuCores": 8,
+    "pcpuCores": 20,
+    "gpuCores": 60,
+    "memoryGb": 96,
+    "ramTotalBytes": "103079215104"
+  },
+  "writerId": "lcqborgvggwxuc674tygsv05y6gz6767"
+}

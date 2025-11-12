@@ -34,6 +34,7 @@ DEFAULT_METRIC_FILENAMES: Mapping[str, str] = {
     "val_losses": "val_losses.pth",
     "generator_losses": "generator_losses.pth",
     "critic_losses": "critic_losses.pth",
+    "drift_losses_sde": "drift_losses_sde.pth",
 }
 
 

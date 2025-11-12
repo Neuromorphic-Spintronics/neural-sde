@@ -90,16 +90,18 @@ def _(NanoringsHyperparameters, Path, torch):
     # Update scalers to account for this standardization
     # New scalers need to reverse: x_orig = x_std * amr_std + amr_mean
     # Then apply old scalers: x_final = x_orig * (old_max - old_min) + old_min
-    new_train_scalers = []
-    for old_min, old_max in processed_data["train_scalers"]:
-        # Combined transformation
-        new_train_scalers.append((amr_mean, amr_std, old_min, old_max))
-    processed_data["train_scalers"] = new_train_scalers
+    def _augment_scalers(scalers):
+        augmented = []
+        for scaler in scalers:
+            if len(scaler) == 2:
+                extra_1, extra_2 = scaler
+            else:
+                extra_1, extra_2 = scaler
+            augmented.append((amr_mean, amr_std, extra_1, extra_2))
+        return augmented
 
-    new_val_scalers = []
-    for old_min, old_max in processed_data["val_scalers"]:
-        new_val_scalers.append((amr_mean, amr_std, old_min, old_max))
-    processed_data["val_scalers"] = new_val_scalers
+    processed_data["train_scalers"] = _augment_scalers(processed_data["train_scalers"])
+    processed_data["val_scalers"] = _augment_scalers(processed_data["val_scalers"])
 
     print(f"Standardized AMR stats - mean: {processed_data['train_amr_main_norm'].mean():.6f}, std: {processed_data['train_amr_main_norm'].std():.6f}")
 
@@ -114,9 +116,9 @@ def _(NanoringsHyperparameters, Path, torch):
 @app.cell
 def _(DEVICE, DriftNet, NetworkArchitecture, config, os):
     # Match the working code architecture exactly
-    # Input: [AMR, H, sin(ωt), sin(2ωt), H_ctx(5), AMR_ctx(5)] = 14 features
+    # Input: [AMR, H, sin(ωt), sin(2ωt)] = 4 features
     drift_net_arch = NetworkArchitecture(
-        input_size=1 + 1 + 2 + config.CONTEXT_POINTS + config.CONTEXT_POINTS,  # 14
+        input_size=1 + 1 + 2,
         hidden_sizes=[128, 128, 128],
         output_size=1,
     )
@@ -155,16 +157,12 @@ def _(
 
     # Create trajectory-level datasets
     train_dataset = TensorDataset(
-        processed_data["train_h_context"],
-        processed_data["train_amr_context"],
         processed_data["train_h_main"],
         processed_data["train_amr_main_norm"],
         processed_data["train_sin_time_1"],
         processed_data["train_sin_time_2"],
     )
     val_dataset = TensorDataset(
-        processed_data["val_h_context"],
-        processed_data["val_amr_context"],
         processed_data["val_h_main"],
         processed_data["val_amr_main_norm"],
         processed_data["val_sin_time_1"],
@@ -183,8 +181,6 @@ def _(
         
         Args:
             raw_batch: Tuple of tensors with shapes:
-                - h_ctx:       [B, C_h]  trajectory-level H contexts
-                - amr_ctx:     [B, C_y]  trajectory-level AMR contexts  
                 - h_main:      [B, T]    H time series
                 - amr_main:    [B, T]    AMR time series (target signal y)
                 - sin_t1:      [B, T]    sin(2π t) feature
@@ -195,7 +191,7 @@ def _(
             - net_input:       [B*(T-1), F] concatenated features per time step
             - true_derivatives:[B*(T-1), 1] finite-difference dy/dt target
         """
-        h_ctx, amr_ctx, h_main, amr_main, sin_t1, sin_t2 = raw_batch
+        h_main, amr_main, sin_t1, sin_t2 = raw_batch
 
         # Current and next AMR values: shapes [B, T-1]
         current = amr_main[:, :-1]  # y[t]
@@ -208,11 +204,7 @@ def _(
         ).reshape(B * T, -1).contiguous()
 
         # Concatenate contexts [B, C_h+C_y], broadcast to [B, T, C], then flatten
-        ctx = torch.cat([h_ctx, amr_ctx], dim=1)
-        ctx_flat = ctx.unsqueeze(1).expand(B, T, -1).reshape(B * T, -1).contiguous()
-
-        # Final model input: [amr, h, sin1, sin2, h_ctx..., amr_ctx...]
-        net_input = torch.cat([step_features, ctx_flat], dim=1)
+        net_input = step_features
 
         # Supervision: finite difference dy/dt (teacher forcing)
         dt = processed_data["dt"]
@@ -262,23 +254,20 @@ def _(
     trained_drift_net.eval()
     
     traj_idx_to_plot = 0
-    # New scaler format: (amr_mean, amr_std, old_min, old_max)
-    _, _, val_min, val_max = processed_data["val_scalers"][traj_idx_to_plot]
-    h_min_val, h_max_val = processed_data["val_h_scalers"][traj_idx_to_plot]
+    # New scaler format: (amr_mean, amr_std, extra_1, extra_2)
+    h_mean_val, h_std_val = processed_data["val_h_scalers"][traj_idx_to_plot]
 
     with torch.no_grad():
-        # Get initial state and contexts
+        # Get initial state
         y0_eval = (
             processed_data["val_amr_main_norm"][traj_idx_to_plot, 0]
             .unsqueeze(0)
             .unsqueeze(0)
             .to(DEVICE)
         )
-        h_context_eval = processed_data["val_h_context"][traj_idx_to_plot].unsqueeze(0).to(DEVICE)
-        amr_context_eval = processed_data["val_amr_context"][traj_idx_to_plot].unsqueeze(0).to(DEVICE)
         val_h_main_traj = processed_data["val_h_main"][traj_idx_to_plot].to(DEVICE)
 
-        # Define trajectory-specific drift function that includes context
+        # Define trajectory-specific drift function
         def drift_func_eval(t, y):
             idx = min(
                 int((t - processed_data["t_min"].item()) / processed_data["dt"]),
@@ -293,9 +282,7 @@ def _(
             sin_t_1 = torch.sin(2 * torch.pi * t_norm_tensor)
             sin_t_2 = torch.sin(4 * torch.pi * t_norm_tensor)
 
-            net_input = torch.cat(
-                [y, h_t, sin_t_1, sin_t_2, h_context_eval, amr_context_eval], dim=1
-            )
+            net_input = torch.cat([y, h_t, sin_t_1, sin_t_2], dim=1)
             return trained_drift_net(net_input)
 
         # Rollout trajectory
@@ -316,16 +303,16 @@ def _(
         # Scaler format: (amr_mean, amr_std, old_min, old_max)
         # First undo standardization: x = x_std * amr_std + amr_mean
         amr_mean_val, amr_std_val, _, _ = processed_data["val_scalers"][traj_idx_to_plot]
+        amr_mean_val = float(amr_mean_val)
+        amr_std_val = float(amr_std_val)
         predicted_sequence = pred_traj_norm.squeeze() * amr_std_val + amr_mean_val
         true_val_sequence = (
             processed_data["val_amr_main_norm"][traj_idx_to_plot]
             * amr_std_val
             + amr_mean_val
         )
-        # Note: old_min/old_max were already applied during preprocessing before standardization
-
-        # Denormalize H-field
-        h_field_unnorm = val_h_main_traj * (h_max_val - h_min_val + 1e-8) + h_min_val
+        # Denormalize H-field using stored mean/std
+        h_field_unnorm = val_h_main_traj * float(h_std_val) + float(h_mean_val)
 
         # Denormalize training sequences
         all_train_seqs = []
@@ -333,28 +320,34 @@ def _(
             # New format: (amr_mean, amr_std, old_min, old_max)
             # First undo standardization: x = x_std * amr_std + amr_mean
             amr_mean_tr, amr_std_tr, _, _ = scaler_tuple
+            amr_mean_tr = float(amr_mean_tr)
+            amr_std_tr = float(amr_std_tr)
             train_seq_norm = processed_data["all_train_amr_main_norm"][i]
             train_sequence = train_seq_norm * amr_std_tr + amr_mean_tr
             all_train_seqs.append(train_sequence.cpu().numpy())
 
+        predicted_sequence_cpu = predicted_sequence.cpu()
+        true_val_sequence_cpu = true_val_sequence.cpu()
+        h_field_cpu = h_field_unnorm.cpu()
+
         # Save results
         np.savetxt(
             os.path.join(output_directory, "predicted_trajectory.txt"),
-            predicted_sequence.cpu().numpy(),
+            predicted_sequence_cpu.numpy(),
         )
         np.savetxt(
             os.path.join(output_directory, "true_trajectory.txt"),
-            true_val_sequence.cpu().numpy(),
+            true_val_sequence_cpu.numpy(),
         )
 
     # Plot results - use current function signature (expects ODE/SDE predictions)
     # For now we only have ODE predictions, so use them for both
     plot_nanoring_results(
         time_axis=processed_data["time_grid"].cpu().numpy(),
-        true_sequence=true_val_sequence,
-        predicted_sequence_ode=predicted_sequence,
-        predicted_sequence_sde=predicted_sequence,  # Use same for now since we don't have SDE
-        h_field=h_field_unnorm,
+        true_sequence=true_val_sequence_cpu,
+        predicted_sequence_ode=predicted_sequence_cpu,
+        predicted_sequence_sde=predicted_sequence_cpu,  # Use same for now since we don't have SDE
+        h_field=h_field_cpu,
         all_train_sequences=np.array(all_train_seqs),
         output_dir=output_directory,
     )

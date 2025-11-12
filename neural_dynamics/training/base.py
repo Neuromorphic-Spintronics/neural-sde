@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Tuple, Callable, Optional, Mapping
+from typing import List, Tuple, Callable, Optional, Mapping, Any
 
 import torch
 from torch import nn
@@ -18,6 +18,7 @@ def train_with_validation(
     early_stopping_patience: int,
     device: torch.device | str,
     batch_preparation_fn: Optional[Callable] = None,
+    wandb_run: Optional[Any] = None,
 ) -> Tuple[nn.Module, List[float], List[float]]:
     """
     Generic training loop with validation and early stopping.
@@ -34,6 +35,7 @@ def train_with_validation(
             (inputs, targets). If None, expects each batch to be either a
             tuple/list of (inputs, targets) or a mapping with keys
             {'inputs','targets'}. Inputs/targets are moved to 'device'.
+        wandb_run: Optional W&B run object for logging training progress.
 
     Returns:
         A tuple containing:
@@ -42,7 +44,7 @@ def train_with_validation(
         - A list of validation losses for each epoch.
     """
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    criterion = nn.SmoothL1Loss()
+    criterion = nn.HuberLoss(delta=0.5)
     model.to(device)
 
     training_losses = []
@@ -117,6 +119,21 @@ def train_with_validation(
 
             avg_epoch_val_loss = epoch_val_loss / max(len(val_loader), 1)
             validation_losses.append(avg_epoch_val_loss)
+
+            # Log to W&B if available
+            if wandb_run is not None:
+                wandb_run.log({
+                    "ode/train_loss": avg_epoch_train_loss,
+                    "ode/val_loss": avg_epoch_val_loss
+                }, step=epoch)
+                
+                # Log summary every 100 epochs
+                if (epoch + 1) % 100 == 0 or epoch == 0:
+                    wandb_run.log({
+                        "ode/checkpoint/epoch": epoch + 1,
+                        "ode/checkpoint/train_loss": avg_epoch_train_loss,
+                        "ode/checkpoint/val_loss": avg_epoch_val_loss,
+                    }, step=epoch)
 
             pbar.set_postfix(
                 {

@@ -226,6 +226,7 @@ class NeuralSDE(nn.Module):
         self._sqrt_timestep = math.sqrt(max(self.timestep, 1e-12))  # type: ignore
         self.generator_losses: list[float] = []
         self.critic_losses: list[float] = []
+        self.drift_losses: list[float] = []  # Drift network SmoothL1 loss during joint training
         self.device = next(self.parameters()).device
 
     @classmethod
@@ -239,8 +240,23 @@ class NeuralSDE(nn.Module):
         device: torch.device,
         enable_adversarial: bool = False,
         random_seed: int = 0,
+        wandb_run: Optional[Any] = None,
     ) -> "NeuralSDE":
-        """Train a neural SDE starting from a pretrained neural ODE."""
+        """Train a neural SDE starting from a pretrained neural ODE.
+
+        Args:
+            hyperparameters: Training hyperparameters
+            neural_ode: Pretrained neural ODE to initialize drift network
+            trajectories: Training trajectories [batch, time, state]
+            time_grid: Time grid for trajectories
+            device: Device for training
+            enable_adversarial: Whether to enable adversarial training
+            random_seed: Random seed for reproducibility
+            wandb_run: Optional W&B run object for logging training progress
+
+        Returns:
+            Trained NeuralSDE instance
+        """
 
         if trajectories.ndim != 3:
             raise ValueError("trajectories must have shape [batch, time, state]")
@@ -272,10 +288,14 @@ class NeuralSDE(nn.Module):
                     "Provided trajectories are shorter than the critic window length"
                 )
 
-            gan_trajectories = trajectories_device[:, :critic_window, : model.state_dimension]
-            gan_time_grid = time_grid_device[:critic_window]
+            # Pass full trajectories - random windows will be sampled internally
+            gan_trajectories = trajectories_device[:, :, : model.state_dimension]
+            gan_time_grid = time_grid_device
 
-            generator_losses, critic_losses = fit_neural_sde_gan(
+            # Get actual number of ODE epochs trained (accounting for early stopping)
+            actual_ode_epochs = len(neural_ode.training_losses) if hasattr(neural_ode, 'training_losses') else None
+
+            generator_losses, critic_losses, drift_losses = fit_neural_sde_gan(
                 drift_network=model.drift_net,
                 diffusion_network=model.diffusion_net,
                 critic_network=model.critic_net,
@@ -283,9 +303,12 @@ class NeuralSDE(nn.Module):
                 stochastic_trajectories=gan_trajectories,
                 hyperparameters=hyperparameters,
                 random_seed=random_seed,
+                wandb_run=wandb_run,
+                actual_ode_epochs=actual_ode_epochs,
             )
             model.generator_losses = generator_losses
             model.critic_losses = critic_losses
+            model.drift_losses = drift_losses  # Store drift losses for plotting
         else:
             if model.diffusion_net is not None:
                 # In non-adversarial training, the diffusion network is not used.
@@ -463,6 +486,63 @@ class NeuralSDE(nn.Module):
 
         return trajectories
 
+    def sample_trajectory(
+        self,
+        initial_state: Tensor,
+        time_grid: Tensor,
+        drift_function: Callable[[float, Tensor], Tensor],
+        diffusion_function: Callable[[float, Tensor], Tensor],
+        device: torch.device,
+    ) -> Tensor:
+        """Sample a single stochastic trajectory using custom drift/diffusion functions.
+        
+        This method allows evaluating the SDE with time-varying external inputs by
+        providing custom drift and diffusion functions that capture the full dynamics.
+        
+        Args:
+            initial_state: Initial state [batch_size, state_dim] or [state_dim]
+            time_grid: Time points for integration [num_steps]
+            drift_function: Custom drift function f(t, y) -> drift
+            diffusion_function: Custom diffusion function g(t, y) -> diffusion matrix
+            device: Device for computation
+            
+        Returns:
+            Trajectory tensor [batch_size, num_steps, state_dim]
+        """
+        dtype = initial_state.dtype
+        state = initial_state.to(device=device, dtype=dtype)
+        if state.ndim == 1:
+            state = state.unsqueeze(0)
+        
+        batch_size = state.shape[0]
+        num_steps = time_grid.shape[0]
+        
+        trajectory = torch.empty(
+            num_steps, batch_size, self.state_dimension, device=device, dtype=dtype
+        )
+        trajectory[0] = state
+        
+        for idx in range(1, num_steps):
+            current_time = float(time_grid[idx - 1].item())
+            dt = float(time_grid[idx].item() - time_grid[idx - 1].item())
+            
+            # Compute drift and diffusion with custom functions
+            drift = drift_function(current_time, state)
+            next_state = state + drift * dt
+            
+            if self.diffusion_net is not None and self.noise_dimension > 0:
+                diffusion = diffusion_function(current_time, state)
+                noise = torch.randn(
+                    batch_size, self.noise_dimension, device=device, dtype=dtype
+                )
+                diffusion_update = torch.bmm(diffusion, noise.unsqueeze(-1)).squeeze(-1)
+                next_state = next_state + diffusion_update * math.sqrt(max(dt, 1e-12))
+            
+            trajectory[idx] = next_state
+            state = next_state
+        
+        return trajectory.permute(1, 0, 2)  # [batch, time, state]
+
     def count_total_parameters(self) -> dict[str, int]:
         """Return the number of trainable parameters per network component."""
         drift_params = count_network_parameters(self.drift_net)
@@ -599,6 +679,8 @@ def train_critic_step(
         critic_network, real_trajectories, fake_trajectories.detach(), gradient_penalty_weight
     )
     critic_cost.backward()
+    # Gradient clipping for stability
+    torch.nn.utils.clip_grad_norm_(critic_network.parameters(), max_norm=1.0)
     critic_optimiser.step()
     return critic_cost.item()
 
@@ -611,37 +693,67 @@ def train_generator_step(
     sde_l1_weight: float,
     moment_matching_weight: float = 0.0,
     moment_matching_enabled: bool = False,
-) -> float:
+    diffusion_network: Optional[DiffusionNet] = None,
+    drift_only_loss: Optional[Tensor] = None,
+    drift_l1_weight: float = 0.0,
+) -> Tuple[float, dict]:
     """
     Perform a single training step for the generator networks (drift and diffusion).
-    
+
     Args:
         generator_optimiser: Optimizer for generator networks
         critic_network: The critic network
-        fake_trajectories: Generated trajectories
+        fake_trajectories: Generated trajectories (drift + diffusion)
         real_trajectories: Ground truth trajectories
-        sde_l1_weight: Weight for L1 pathwise loss
+        sde_l1_weight: Weight for L1 pathwise loss on full SDE trajectories
         moment_matching_weight: Weight for statistical moment matching
         moment_matching_enabled: Whether to enable moment matching
+        diffusion_network: Optional diffusion network for gradient clipping
+        drift_only_loss: Optional SmoothL1 loss for drift-only predictions (requires gradients)
+        drift_l1_weight: Weight for drift-only SmoothL1 constraint during adversarial training
+
+    Returns:
+        Tuple of (total_loss, loss_components_dict)
     """
     generator_optimiser.zero_grad()
-    
+
     # Adversarial loss with optional moment matching
     adversarial_loss = compute_generator_cost(
         critic_network, fake_trajectories, real_trajectories, moment_matching_weight, moment_matching_enabled
     )
-    
-    # Pathwise L1 loss
+
+    # Pathwise L1 loss on full SDE trajectories (drift + diffusion)
     l1_loss = nn.functional.smooth_l1_loss(
         fake_trajectories.contiguous(), real_trajectories.contiguous()
     )
-    
-    # Combined loss
+
+    # Combined loss with optional drift-only constraint
     generator_cost = adversarial_loss + sde_l1_weight * l1_loss
-    
+
+    # Track individual loss components for analysis
+    loss_components = {
+        'adversarial': adversarial_loss.item(),
+        'sde_l1': l1_loss.item(),
+        'sde_l1_weighted': (sde_l1_weight * l1_loss).item(),
+        'drift_only': 0.0,
+        'drift_only_weighted': 0.0,
+    }
+
+    # Add explicit drift-only SmoothL1 constraint if provided
+    # This ensures the deterministic component (drift) continues to improve
+    if drift_only_loss is not None and drift_l1_weight > 0:
+        generator_cost = generator_cost + drift_l1_weight * drift_only_loss
+        loss_components['drift_only'] = drift_only_loss.item()
+        loss_components['drift_only_weighted'] = (drift_l1_weight * drift_only_loss).item()
+
     generator_cost.backward()
+
+    # Gradient clipping for stability (especially important for diffusion network)
+    if diffusion_network is not None:
+        torch.nn.utils.clip_grad_norm_(diffusion_network.parameters(), max_norm=0.5)
+
     generator_optimiser.step()
-    return generator_cost.item()
+    return generator_cost.item(), loss_components
 
 
 def fit_neural_sde_gan(
@@ -653,16 +765,45 @@ def fit_neural_sde_gan(
     *,
     hyperparameters: Hyperparameters,
     random_seed: int = 0,
-) -> Tuple[List[float], List[float]]:
+    wandb_run: Optional[Any] = None,
+    actual_ode_epochs: Optional[int] = None,
+) -> Tuple[List[float], List[float], List[float]]:
     """
     Train the Neural SDE GAN using the WGAN-GP algorithm.
+
+    Samples random windows of size critic_network.trajectory_length from the full
+    trajectories to ensure the GAN learns diffusion dynamics across different
+    time regions and varying exogenous inputs (e.g., H field). This enables
+    backpropagation through time (BPTT) over the entire trajectory domain.
+
+    Args:
+        drift_network: The drift network
+        diffusion_network: The diffusion network
+        critic_network: The critic network
+        time_grid: Time grid for trajectories
+        stochastic_trajectories: Training trajectories [batch, time, state]
+        hyperparameters: Training hyperparameters
+        random_seed: Random seed for reproducibility
+        wandb_run: Optional W&B run object for logging training progress
+        actual_ode_epochs: Actual number of ODE epochs trained (for W&B step offset)
+
+    Returns:
+        Tuple of (generator_losses, critic_losses, drift_losses).
+        drift_losses will be populated only when train_ode_with_sde=True.
     """
     torch.manual_seed(random_seed)
 
-    # Freeze the drift network by setting it to evaluation mode and excluding its parameters from the optimizer
-    drift_network.eval()
+    # Configure drift network training mode based on hyperparameter
+    if hyperparameters.train_ode_with_sde:
+        drift_network.train()
+        generator_params = list(drift_network.parameters()) + list(diffusion_network.parameters())
+    else:
+        # Freeze the drift network by setting it to evaluation mode
+        drift_network.eval()
+        generator_params = diffusion_network.parameters()
+    
     generator_optimiser = optim.Adam(
-        diffusion_network.parameters(), lr=hyperparameters.learning_rates.generator
+        generator_params, lr=hyperparameters.learning_rates.generator
     )
     critic_optimiser = optim.Adam(
         critic_network.parameters(), lr=hyperparameters.learning_rates.critic
@@ -670,47 +811,133 @@ def fit_neural_sde_gan(
 
     generator_losses = []
     critic_losses = []
+    drift_losses = []  # Track drift network SmoothL1 loss when training jointly
 
     stochastic_trajectories = stochastic_trajectories.to(DEVICE)
+    time_grid = time_grid.to(DEVICE)
+    
+    # Get critic window size and trajectory length
+    critic_window = critic_network.trajectory_length
+    full_trajectory_length = stochastic_trajectories.shape[1]
+    
+    if full_trajectory_length < critic_window:
+        raise ValueError(
+            f"Trajectory length {full_trajectory_length} is shorter than "
+            f"critic window {critic_window}"
+        )
+    
     num_batches = math.ceil(stochastic_trajectories.shape[0] / hyperparameters.batch_size)
 
     # Create SDE model outside the loop for efficiency
     sde = NeuralSDE(drift_network, diffusion_network, hyperparameters).to(DEVICE)
-    time_grid = time_grid.to(DEVICE)
     num_epochs = hyperparameters.number_of_gan_epochs
 
     with tqdm(range(num_epochs), desc="Training Neural SDE GAN") as pbar:
         for epoch in pbar:
             epoch_critic_losses = []
             epoch_generator_losses = []
+            epoch_drift_losses = []  # Track drift-only loss when joint training
+
+            # Accumulate loss components for detailed analysis
+            epoch_loss_components = {
+                'adversarial': [],
+                'sde_l1': [],
+                'sde_l1_weighted': [],
+                'drift_only': [],
+                'drift_only_weighted': [],
+            }
+            
+            # Shuffle data each epoch for better generalization
+            perm = torch.randperm(stochastic_trajectories.shape[0], device=DEVICE)
+            shuffled_trajectories = stochastic_trajectories[perm]
             
             for batch_idx in range(num_batches):
                 start_idx = batch_idx * hyperparameters.batch_size
-                end_idx = min(start_idx + hyperparameters.batch_size, stochastic_trajectories.shape[0])
-                real_trajectories = stochastic_trajectories[start_idx:end_idx].to(DEVICE)
+                end_idx = min(start_idx + hyperparameters.batch_size, shuffled_trajectories.shape[0])
                 
-                if real_trajectories.shape[0] == 0:
+                if start_idx >= end_idx:
                     continue
 
+                # Sample RANDOM windows from full trajectories to ensure critic sees entire time domain
+                # and varying exogenous inputs (e.g., different H field values across time)
+                batch_trajectories = shuffled_trajectories[start_idx:end_idx]  # [batch, full_time, state]
+                batch_size_actual = batch_trajectories.shape[0]
+                
+                # For each trajectory in batch, sample a random starting point for the window
+                max_start_idx = full_trajectory_length - critic_window
+                if max_start_idx > 0:
+                    # Random start indices for each trajectory in the batch
+                    start_indices = torch.randint(
+                        0, max_start_idx + 1, (batch_size_actual,), device=DEVICE
+                    )
+                else:
+                    # If trajectory is exactly critic_window length, start at 0
+                    start_indices = torch.zeros(batch_size_actual, dtype=torch.long, device=DEVICE)
+                
+                # Extract random windows for each trajectory
+                real_trajectories = torch.stack([
+                    batch_trajectories[i, start_indices[i]:start_indices[i] + critic_window, :]
+                    for i in range(batch_size_actual)
+                ]).contiguous()
+                
+                # Extract corresponding time windows
+                window_time_grids = torch.stack([
+                    time_grid[start_indices[i]:start_indices[i] + critic_window]
+                    for i in range(batch_size_actual)
+                ])
+                
+                # Use the time grid from the first trajectory (all should be identical structure)
+                window_time_grid = window_time_grids[0]
                 initial_states = real_trajectories[:, 0, :]
 
-                # Generate trajectories once per batch
-                fake_trajectories = sde(initial_states, time_grid)
-                fake_for_critic = fake_trajectories.detach()
+                # Generate fake trajectories once and reuse for critic updates (efficiency)
+                with torch.no_grad():
+                    fake_trajectories_detached = sde(initial_states, window_time_grid).detach()
 
-                # Train critic (critic_updates times, but now it's 1)
+                # Train critic multiple times with the same fake batch (WGAN-GP best practice)
                 for _ in range(hyperparameters.critic_updates):
                     critic_loss = train_critic_step(
                         critic_optimiser,
                         critic_network,
                         real_trajectories,
-                        fake_for_critic,
+                        fake_trajectories_detached,
                         hyperparameters.gradient_penalty_weight,
                     )
                     epoch_critic_losses.append(critic_loss)
 
-                # Train generator using the gradient-enabled trajectories
-                generator_loss = train_generator_step(
+                # Train generator once with fresh gradient-enabled trajectories
+                fake_trajectories = sde(initial_states, window_time_grid)
+
+                # Compute drift-only loss WITH gradients if training drift jointly
+                drift_only_loss_tensor = None
+                drift_l1_weight = getattr(hyperparameters, 'drift_l1_weight', 0.0)
+                if hyperparameters.train_ode_with_sde and drift_l1_weight > 0:
+                    # Compute predicted derivatives using drift network (matching ODE training)
+                    # This ensures the loss is comparable to the ODE training phase
+                    predicted_derivatives = []
+                    current_state = real_trajectories[:, :-1, :]  # All states except last
+
+                    for step_idx in range(len(window_time_grid) - 1):
+                        t = float(window_time_grid[step_idx])
+                        time_tensor = torch.full((current_state.shape[0], 1), t, device=DEVICE, dtype=current_state.dtype)
+                        drift = drift_network.compute_drift(current_state[:, step_idx, :], time_tensor, external_inputs=None)
+                        predicted_derivatives.append(drift)
+
+                    predicted_derivatives = torch.stack(predicted_derivatives, dim=1)  # [batch, time-1, state]
+
+                    # Compute true derivatives from trajectory (matching ODE training data preparation)
+                    dt = float(window_time_grid[1] - window_time_grid[0])
+                    current_positions = real_trajectories[:, :-1, :]
+                    next_positions = real_trajectories[:, 1:, :]
+                    true_derivatives = (next_positions - current_positions) / dt
+
+                    # Compute HuberLoss on derivatives (matching ODE training criterion)
+                    # This makes the loss values directly comparable between ODE and SDE phases
+                    drift_only_loss_tensor = nn.functional.huber_loss(
+                        predicted_derivatives, true_derivatives, delta=0.5
+                    )
+
+                generator_loss, loss_components = train_generator_step(
                     generator_optimiser,
                     critic_network,
                     fake_trajectories,
@@ -718,8 +945,66 @@ def fit_neural_sde_gan(
                     hyperparameters.sde_l1_weight,
                     moment_matching_weight=getattr(hyperparameters, 'moment_matching_weight', 0.0),
                     moment_matching_enabled=getattr(hyperparameters, 'moment_matching_enabled', False),
+                    diffusion_network=diffusion_network,
+                    drift_only_loss=drift_only_loss_tensor,
+                    drift_l1_weight=drift_l1_weight,
                 )
                 epoch_generator_losses.append(generator_loss)
+
+                # Accumulate loss components for epoch-level analysis
+                for key, value in loss_components.items():
+                    epoch_loss_components[key].append(value)
+
+                # Detailed logging for first 5 epochs to understand loss magnitudes
+                if epoch < 5 and batch_idx == 0:
+                    print(f"\n{'='*80}")
+                    print(f"EPOCH {epoch} - BATCH {batch_idx} - LOSS COMPONENT ANALYSIS")
+                    print(f"{'='*80}")
+                    print("\n[GENERATOR LOSS COMPONENTS]")
+                    print(f"  1. Adversarial Loss (from critic):        {loss_components['adversarial']:>12.6f}")
+                    print(f"  2. SDE L1 Loss (pathwise, unweighted):    {loss_components['sde_l1']:>12.6f}")
+                    print(f"     → Weighted (× {hyperparameters.sde_l1_weight:.1f}):            {loss_components['sde_l1_weighted']:>12.6f}")
+                    print(f"  3. Drift-only Loss (derivatives):         {loss_components['drift_only']:>12.6f}")
+                    print(f"     → Weighted (× {drift_l1_weight:.1f}):            {loss_components['drift_only_weighted']:>12.6f}")
+                    print(f"\n  TOTAL GENERATOR LOSS:                     {generator_loss:>12.6f}")
+                    print("\n[RELATIVE MAGNITUDES]")
+                    total = generator_loss
+                    if total > 0:
+                        print(f"  Adversarial:        {100*loss_components['adversarial']/total:>6.2f}%")
+                        print(f"  SDE L1 (weighted):  {100*loss_components['sde_l1_weighted']/total:>6.2f}%")
+                        print(f"  Drift (weighted):   {100*loss_components['drift_only_weighted']/total:>6.2f}%")
+                    print("\n[WHERE EACH TERM APPEARS IN TRAINING]")
+                    print("  • Adversarial Loss: Computed by critic network evaluating")
+                    print("                      fake vs real trajectory distributions")
+                    print("  • SDE L1 Loss:      Pathwise constraint on FULL SDE trajectories")
+                    print("                      (drift + diffusion), ensures trajectory matching")
+                    print("  • Drift-only Loss:  Derivative constraint on drift network ONLY")
+                    print("                      (ignoring diffusion), ensures ODE accuracy")
+                    print(f"{'='*80}\n")
+
+                # Track drift-only loss for plotting (can reuse or recompute without gradients)
+                if hyperparameters.train_ode_with_sde:
+                    if drift_only_loss_tensor is not None:
+                        # Reuse the computed loss value
+                        epoch_drift_losses.append(drift_only_loss_tensor.item())
+                    else:
+                        # Compute for monitoring only (when drift_l1_weight=0)
+                        with torch.no_grad():
+                            drift_predictions = []
+                            current_state = initial_states
+                            for step_idx in range(1, len(window_time_grid)):
+                                dt = float(window_time_grid[step_idx] - window_time_grid[step_idx - 1])
+                                t = float(window_time_grid[step_idx - 1])
+                                time_tensor = torch.full((current_state.shape[0], 1), t, device=DEVICE, dtype=current_state.dtype)
+                                drift = drift_network.compute_drift(current_state, time_tensor, external_inputs=None)
+                                next_state = current_state + drift * dt
+                                drift_predictions.append(next_state)
+                                current_state = next_state
+                            drift_predictions = torch.stack(drift_predictions, dim=1)
+                            drift_only_loss = nn.functional.smooth_l1_loss(
+                                drift_predictions, real_trajectories[:, 1:, :]
+                            )
+                            epoch_drift_losses.append(drift_only_loss.item())
 
             if epoch_generator_losses:
                 generator_losses.append(
@@ -732,9 +1017,101 @@ def fit_neural_sde_gan(
                 critic_losses.append(sum(epoch_critic_losses) / len(epoch_critic_losses))
             else:
                 critic_losses.append(0.0)
+            
+            # Track drift loss for plotting continuity when training jointly
+            if hyperparameters.train_ode_with_sde and epoch_drift_losses:
+                drift_losses.append(sum(epoch_drift_losses) / len(epoch_drift_losses))
+            else:
+                drift_losses.append(0.0)
+
+            # Print epoch-level loss component summary at key checkpoints
+            checkpoint_epochs = [0, 1, 2, 3, 4, 10, 25, 50, 100, 200, 300]
+            if epoch in checkpoint_epochs or (epoch + 1) == num_epochs:
+                # Compute mean of each component across all batches this epoch
+                if epoch_loss_components['adversarial']:
+                    mean_components = {
+                        key: sum(values) / len(values)
+                        for key, values in epoch_loss_components.items()
+                    }
+                    total_loss = generator_losses[-1]
+
+                    print(f"\n{'='*80}")
+                    print(f"EPOCH {epoch} SUMMARY - LOSS COMPONENT ANALYSIS")
+                    print(f"{'='*80}")
+                    print("\n[MEAN LOSS COMPONENTS ACROSS ALL BATCHES]")
+                    print(f"  1. Adversarial Loss:               {mean_components['adversarial']:>12.6f}")
+                    print(f"  2. SDE L1 Loss (unweighted):       {mean_components['sde_l1']:>12.6f}")
+                    print(f"     → Weighted (× {hyperparameters.sde_l1_weight:.1f}):         {mean_components['sde_l1_weighted']:>12.6f}")
+                    print(f"  3. Drift-only Loss (unweighted):   {mean_components['drift_only']:>12.6f}")
+                    print(f"     → Weighted (× {getattr(hyperparameters, 'drift_l1_weight', 0.0):.1f}):         {mean_components['drift_only_weighted']:>12.6f}")
+                    print(f"\n  TOTAL GENERATOR LOSS:              {total_loss:>12.6f}")
+                    print("\n[RELATIVE CONTRIBUTION TO TOTAL LOSS]")
+                    if total_loss > 0:
+                        adv_pct = 100 * mean_components['adversarial'] / total_loss
+                        sde_pct = 100 * mean_components['sde_l1_weighted'] / total_loss
+                        drift_pct = 100 * mean_components['drift_only_weighted'] / total_loss
+                        print(f"  Adversarial:        {adv_pct:>6.2f}%")
+                        print(f"  SDE L1 (weighted):  {sde_pct:>6.2f}%")
+                        print(f"  Drift (weighted):   {drift_pct:>6.2f}%")
+
+                        # Issue warnings if one term dominates
+                        if drift_pct > 70:
+                            print(f"\n  ⚠️  WARNING: Drift loss dominates ({drift_pct:.1f}%)")
+                            print("      This may prevent the diffusion network from learning!")
+                            print(f"      Consider reducing DRIFT_L1_WEIGHT from {getattr(hyperparameters, 'drift_l1_weight', 0.0)}")
+                        elif adv_pct > 80:
+                            print(f"\n  ⚠️  WARNING: Adversarial loss dominates ({adv_pct:.1f}%)")
+                            print("      Pathwise constraints may be too weak!")
+                    print(f"{'='*80}\n")
+
+            # Log to W&B if available (offset by actual ODE epochs trained)
+            if wandb_run is not None:
+                # Use actual ODE epochs if provided, otherwise fall back to configured value
+                ode_epochs = actual_ode_epochs if actual_ode_epochs is not None else getattr(hyperparameters, 'number_of_epochs', 0)
+                step = ode_epochs + epoch
+                log_data = {
+                    "sde/generator_loss": generator_losses[-1],
+                    "sde/critic_loss": critic_losses[-1]
+                }
+                
+                # Log drift loss as continuation of ODE training (same metric name for continuity)
+                if drift_losses[-1] > 0:  # Only log if drift loss was computed
+                    log_data["ode/train_loss"] = drift_losses[-1]  # Continue the ODE plot
+                    log_data["sde/drift_loss"] = drift_losses[-1]  # Also keep separate metric
+                
+                wandb_run.log(log_data, step=step)
+                
+                # Log detailed checkpoint every 100 epochs
+                if (epoch + 1) % 100 == 0 or epoch == 0:
+                    checkpoint_data = {
+                        "sde/checkpoint/epoch": epoch + 1,
+                        "sde/checkpoint/generator_loss": generator_losses[-1],
+                        "sde/checkpoint/critic_loss": critic_losses[-1],
+                    }
+                    if drift_losses[-1] > 0:
+                        checkpoint_data["sde/checkpoint/drift_loss"] = drift_losses[-1]
+                    
+                    # Add statistics about batch losses if available
+                    if epoch_generator_losses:
+                        checkpoint_data["sde/checkpoint/generator_loss_mean"] = sum(epoch_generator_losses) / len(epoch_generator_losses)
+                        checkpoint_data["sde/checkpoint/generator_loss_std"] = (
+                            sum((x - checkpoint_data["sde/checkpoint/generator_loss_mean"]) ** 2 for x in epoch_generator_losses) / len(epoch_generator_losses)
+                        ) ** 0.5 if len(epoch_generator_losses) > 1 else 0.0
+                    if epoch_critic_losses:
+                        checkpoint_data["sde/checkpoint/critic_loss_mean"] = sum(epoch_critic_losses) / len(epoch_critic_losses)
+                        checkpoint_data["sde/checkpoint/critic_loss_std"] = (
+                            sum((x - checkpoint_data["sde/checkpoint/critic_loss_mean"]) ** 2 for x in epoch_critic_losses) / len(epoch_critic_losses)
+                        ) ** 0.5 if len(epoch_critic_losses) > 1 else 0.0
+                    if epoch_drift_losses:
+                        checkpoint_data["sde/checkpoint/drift_loss_mean"] = sum(epoch_drift_losses) / len(epoch_drift_losses)
+                        checkpoint_data["sde/checkpoint/drift_loss_std"] = (
+                            sum((x - checkpoint_data["sde/checkpoint/drift_loss_mean"]) ** 2 for x in epoch_drift_losses) / len(epoch_drift_losses)
+                        ) ** 0.5 if len(epoch_drift_losses) > 1 else 0.0
+                    
+                    wandb_run.log(checkpoint_data, step=step)
 
             pbar.set_postfix(
                 {"Gen Loss": generator_losses[-1], "Critic Loss": critic_losses[-1]}
             )
 
-    return generator_losses, critic_losses
+    return generator_losses, critic_losses, drift_losses
