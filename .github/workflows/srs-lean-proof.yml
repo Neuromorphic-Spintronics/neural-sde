@@ -1,0 +1,28 @@
+name: SRS Lean proof check
+
+on:
+  push:
+    branches:
+      - srs-lean-proof-check
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: leanprover/lean-action@v1
+        with:
+          build: true
+          test: false
+          lint: false
+          use-mathlib-cache: true
+          use-github-cache: false
+      - name: Reject sorry
+        run: |
+          if grep -R -n -E '(^|[^A-Za-z])(sorry|admit)([^A-Za-z]|$)' SRSProof.lean; then
+            echo "Found unfinished proof"
+            exit 1
+          fi
