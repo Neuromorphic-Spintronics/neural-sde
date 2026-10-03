@@ -112,7 +112,7 @@ lemma p1_four_pos : 0 < p1 4 := by
 lemma p1_left_factor_neg :
     ((267 + 77 * s17) / 34) * ((1 : ℝ) / 2)
       - (766 + 82 * s17) / 17 < 0 := by
-  have hsup := s17_upper
+  have hs0 := s17_nonneg
   nlinarith
 
 lemma p1_right_factor_pos :
@@ -195,16 +195,26 @@ lemma B_neg_of_interval {r : ℝ} (hlo : (1 : ℝ) / 4 < r) (hhi : r < 4) :
           + ((15 : ℝ) / 4) * (r - (1 : ℝ) / 4) * (r - 4) := by
     dsimp [B]
     ring
-  rw [hid]
+  have h3 : ((15 : ℝ) / 4) * (r - (1 : ℝ) / 4) * (r - 4) < 0 := by
+    have hc : 0 < (15 : ℝ) / 4 := by norm_num
+    exact mul_neg_of_pos_of_neg hc hprod
+  have hscaled : ((15 : ℝ) / 4) * B r < 0 := by
+    rw [hid]
+    linarith
   nlinarith
 
 lemma discriminant_factor (r : ℝ) :
     4 * p2 r * p0 r - (p1 r) ^ 2
       = - ((3537 + 855 * s17) / 34) * (r - 1) ^ 2 * B r := by
   have hs2 := s17_sq
+  have hs3 : s17 ^ 3 = 17 * s17 := by
+    calc
+      s17 ^ 3 = s17 * s17 ^ 2 := by ring
+      _ = 17 * s17 := by rw [hs2]; ring
   dsimp [p2, p1, p0, B, cy, cz]
   ring_nf
-  nlinarith
+  rw [hs3, hs2]
+  ring
 
 lemma reduced_nonneg {r u : ℝ} (hr : 0 ≤ r) (hu : 0 ≤ u) :
     0 ≤ p2 r * u ^ 2 + p1 r * u + p0 r := by
@@ -224,7 +234,7 @@ lemma reduced_nonneg {r u : ℝ} (hr : 0 ≤ r) (hu : 0 ≤ u) :
       rw [discriminant_factor r]
       have hsquare : 0 ≤ (r - 1) ^ 2 := sq_nonneg _
       have htmp : 0 ≤ - ((3537 + 855 * s17) / 34) * B r := by
-        exact (mul_pos (by nlinarith) hB).le
+        exact (mul_pos_of_neg_of_neg (by nlinarith [hcoef]) hB).le
       nlinarith [mul_nonneg htmp hsquare]
     have hsquare : 0 ≤ (2 * p2 r * u + p1 r) ^ 2 := sq_nonneg _
     have hid :
@@ -245,7 +255,8 @@ lemma reduced_identity (r u : ℝ) :
   have hs2 := s17_sq
   dsimp [p2, p1, p0, cy, cz, cw]
   ring_nf
-  nlinarith
+  rw [hs2]
+  ring
 
 lemma cubic_nonneg (Y Z W : ℝ) (hY : 0 ≤ Y) (hZ : 0 ≤ Z) (hW : 0 ≤ W) :
     0 ≤
@@ -346,7 +357,8 @@ theorem sharp_quartic (x y z w : ℝ) :
     have hAQ : 0 ≤ A * Q := by
       rw [hid]
       exact add_nonneg (sq_nonneg _) hAD
-    have hQ : 0 ≤ Q := nonneg_of_mul_nonneg_left hAQ hApos
+    have hQA : 0 ≤ Q * A := by simpa [mul_comm] using hAQ
+    have hQ : 0 ≤ Q := nonneg_of_mul_nonneg_left hQA hApos
     dsimp [Q] at hQ
     linarith
 
