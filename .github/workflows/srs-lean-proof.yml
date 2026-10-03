@@ -13,13 +13,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: leanprover/lean-action@v1
+      - name: Install Lean
+        uses: leanprover/lean-action@v1
         with:
-          build: true
+          auto-config: false
+          build: false
           test: false
           lint: false
-          use-mathlib-cache: true
+          use-mathlib-cache: false
           use-github-cache: false
+      - name: Resolve Mathlib
+        run: lake update
+      - name: Get Mathlib cache
+        run: lake exe cache get
+      - name: Type-check formal proof
+        run: lake build
       - name: Reject sorry
         run: |
           if grep -R -n -E '(^|[^A-Za-z])(sorry|admit)([^A-Za-z]|$)' SRSProof.lean; then
