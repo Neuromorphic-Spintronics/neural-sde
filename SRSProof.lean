@@ -197,7 +197,9 @@ lemma B_neg_of_interval {r : ℝ} (hlo : (1 : ℝ) / 4 < r) (hhi : r < 4) :
     ring
   have h3 : ((15 : ℝ) / 4) * (r - (1 : ℝ) / 4) * (r - 4) < 0 := by
     have hc : 0 < (15 : ℝ) / 4 := by norm_num
-    exact mul_neg_of_pos_of_neg hc hprod
+    have hcr : 0 < ((15 : ℝ) / 4) * (r - (1 : ℝ) / 4) :=
+      mul_pos hc hright
+    exact mul_neg_of_pos_of_neg hcr (by nlinarith)
   have hscaled : ((15 : ℝ) / 4) * B r < 0 := by
     rw [hid]
     linarith
